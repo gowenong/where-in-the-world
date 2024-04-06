@@ -1,0 +1,29 @@
+{
+  "name": "where-in-the-world",
+  "version": "1.0.0",
+  "description": "Find your friends, places to travel to, and live.",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "client": "cd client && npm start",
+    "dev": "concurrently \"npm start\" \"npm run client\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gowenong/where-in-the-world.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/gowenong/where-in-the-world/issues"
+  },
+  "homepage": "https://github.com/gowenong/where-in-the-world#readme",
+  "dependencies": {
+    "express": "^4.19.2",
+    "mongodb": "^6.5.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
