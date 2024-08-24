@@ -1,14 +1,38 @@
 .App {
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
 }
 
 .App-header {
   background-color: #282c34;
-  min-height: 20vh;
+  color: white;
+  padding: 10px;
+  text-align: center;
+  font-size: 0.8rem;
+  height: 30px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+}
+
+.App-header h1 {
+  margin: 0;
+}
+
+.App-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.PersonList {
+  width: 300px;
+  overflow-y: auto;
+  padding: 10px;
+  border-right: 1px solid #ccc;
+}
+
+.Map {
+  flex: 1;
 }
