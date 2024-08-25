@@ -2,39 +2,59 @@ import React, { useState, useEffect } from 'react';
 import './App.css';
 import PersonForm from './components/PersonForm';
 import PersonList from './components/PersonList';
-import Map from './components/Map';
+import SearchBar from './components/SearchBar';
+import Map from './components/Map'; // Import the Map component
 
 function App() {
   const [people, setPeople] = useState([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingPerson, setEditingPerson] = useState(null);
 
   useEffect(() => {
     fetchPeople();
   }, []);
 
-  const fetchPeople = () => {
-    fetch('/api/people')
-      .then(response => response.json())
-      .then(data => setPeople(data));
+  const fetchPeople = async (query = '') => {
+    try {
+      const response = await fetch(`/api/people${query ? `?location=${query}` : ''}`);
+      const data = await response.json();
+      setPeople(data);
+    } catch (error) {
+      console.error('Error fetching people:', error);
+    }
   };
 
-  const handlePersonAdded = (newPerson) => {
-    fetch('/api/people', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newPerson),
-    })
-      .then(response => response.json())
-      .then(data => setPeople([...people, data]));
+  const fetchPeopleByName = async (query = '') => {
+    try {
+      const response = await fetch(`/api/people${query ? `?name=${query}` : ''}`);
+      const data = await response.json();
+      setPeople(data);
+    } catch (error) {
+      console.error('Error fetching people by name:', error);
+    }
   };
 
-  const handleSearch = (query) => {
-    fetch(`/api/people?city=${query}`)
-      .then(response => response.json())
-      .then(data => setPeople(data));
+  const handlePersonChange = (updatedPerson, isNew = false) => {
+    setPeople(prevPeople => 
+      isNew 
+        ? [...prevPeople, {...updatedPerson, isStarred: updatedPerson.isStarred}]
+        : prevPeople.map(p => p.id === updatedPerson.id ? {...updatedPerson, isStarred: updatedPerson.isStarred} : p)
+    );
+    closeModal();
   };
 
-  const handlePersonUpdated = (updatedPerson) => {
-    setPeople(people.map(p => p.id === updatedPerson.id ? updatedPerson : p));
+  const handlePersonDeleted = (deletedPersonId) => {
+    setPeople(prevPeople => prevPeople.filter(p => p.id !== deletedPersonId));
+  };
+
+  const openModal = (person = null) => {
+    setEditingPerson(person);
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditingPerson(null);
   };
 
   return (
@@ -42,11 +62,30 @@ function App() {
       <header className="App-header">
         <h1>Where in the World</h1>
       </header>
-      <PersonForm onPersonAdded={handlePersonAdded} onSearch={handleSearch} />
-      <main className="App-main">
-        <PersonList people={people} onPersonUpdated={handlePersonUpdated} />
+      <nav className="App-nav">
+        <SearchBar 
+          onSearch={fetchPeople} 
+          onPeopleSearch={fetchPeopleByName}
+          onAddPerson={() => openModal()} 
+        />
+      </nav>
+      <div className="App-content">
+        <PersonList
+          people={people.filter(person => person.isStarred)}
+          onEditPerson={openModal}
+          onDeletePerson={handlePersonDeleted}
+        />
         <Map people={people} />
-      </main>
+      </div>
+      {isModalOpen && (
+        <div className="modal-backdrop">
+          <PersonForm
+            person={editingPerson}
+            onClose={closeModal}
+            onSubmit={(person) => handlePersonChange(person, !editingPerson)}
+          />
+        </div>
+      )}
     </div>
   );
 }
