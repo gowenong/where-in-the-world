@@ -156,10 +156,10 @@ export default function AddPerson() {
     setVisitedLocations(visitedLocations.filter(loc => loc !== location));
   };
 
-  const handleAddTag = () => {
-    if (newTag && !tags.includes(newTag) && !defaultTags.includes(newTag)) {
-      setTags([...tags, newTag]);
-      setNewTag('');
+  const handleAddTag = (tag: string) => {
+    if (tag && !tags.includes(tag)) {
+      setTags([...tags, tag]);
+      setNewTag(''); // Clear the new tag input
     }
   };
 
@@ -296,32 +296,32 @@ export default function AddPerson() {
 
             <div className="space-y-2">
               <Label htmlFor="tags">Tags</Label>
-              <Select
-                onValueChange={(value) => {
-                  if (!tags.includes(value)) {
-                    setTags([...tags, value]);
-                  }
-                }}
-              >
-                <SelectTrigger id="tags">
-                  <SelectValue placeholder="Select or create tags" />
-                </SelectTrigger>
-                <SelectContent>
-                  {defaultTags.map((tag) => (
-                    <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-                  ))}
-                  <div className="flex p-2">
-                    <Input 
-                      value={newTag} 
-                      onChange={(e) => setNewTag(e.target.value)}
-                      placeholder="Create new tag"
-                      className="flex-grow"
-                      onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
-                    />
-                    <Button onClick={handleAddTag} size="sm" className="ml-2">Add</Button>
-                  </div>
-                </SelectContent>
-              </Select>
+              <div className="flex space-x-2">
+                <Select
+                  onValueChange={handleAddTag}
+                >
+                  <SelectTrigger id="tags">
+                    <SelectValue placeholder="Select tags" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {defaultTags.filter(tag => !tags.includes(tag)).map((tag) => (
+                      <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input 
+                  value={newTag} 
+                  onChange={(e) => setNewTag(e.target.value)}
+                  placeholder="Create new tag"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddTag(newTag);
+                    }
+                  }}
+                />
+                <Button onClick={() => handleAddTag(newTag)} size="sm">Add</Button>
+              </div>
               <div className="flex flex-wrap gap-2 mt-2 max-h-24 overflow-y-auto">
                 {tags.map((tag, index) => (
                   <span key={index} className="bg-primary text-primary-foreground px-2 py-1 rounded-full text-sm flex items-center">
