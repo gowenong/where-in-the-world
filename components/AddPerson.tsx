@@ -13,25 +13,35 @@ import axios from 'axios';
 
 const defaultTags = ['Best Friend', 'Family', 'Colleague', 'Acquaintance'];
 
-export default function AddPerson() {
-  const [name, setName] = useState('');
+type Person = {
+  id: number;
+  name: string;
+  country: string;
+  city: string;
+  visitedLocations: { id: number; location: string }[];
+  tags: { id: number; tag: string }[];
+  isStarred: boolean;
+};
+
+export default function AddPerson({ isEditing = false, personData = null as Person | null, onClose = () => {} }) {
+  const [name, setName] = useState(personData?.name || '');
   const [countries, setCountries] = useState<string[]>([]);
-  const [country, setCountry] = useState('');
-  const [citySearch, setCitySearch] = useState('');
+  const [country, setCountry] = useState(personData?.country || '');
+  const [citySearch, setCitySearch] = useState(personData?.city || '');
   const [filteredCities, setFilteredCities] = useState<string[]>([]);
-  const [selectedCity, setSelectedCity] = useState('');
+  const [selectedCity, setSelectedCity] = useState(personData?.city || '');
   const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [isLoadingCities, setIsLoadingCities] = useState(false);
   const [cities, setCities] = useState<string[]>([]);
-  const [visitedLocations, setVisitedLocations] = useState<string[]>([]);
+  const [visitedLocations, setVisitedLocations] = useState<string[]>(personData?.visitedLocations.map(vl => vl.location) || []);
   const [newLocation, setNewLocation] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
+  const [tags, setTags] = useState<string[]>(personData?.tags.map(t => t.tag) || []);
   const [newTag, setNewTag] = useState('');
-  const [isStarred, setIsStarred] = useState(false);
+  const [isStarred, setIsStarred] = useState(personData?.isStarred || false);
   const [initials, setInitials] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [focusedCityIndex, setFocusedCityIndex] = useState(-1);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(isEditing);
 
   const debouncedFilterCities = useCallback(
     debounce((searchTerm: string) => {
@@ -131,7 +141,17 @@ export default function AddPerson() {
 
   useEffect(() => {
     fetchCountries('');
-  }, [fetchCountries]);
+    if (isEditing && personData) {
+      setName(personData.name);
+      setCountry(personData.country);
+      setCitySearch(personData.city);
+      setSelectedCity(personData.city);
+      setVisitedLocations(personData.visitedLocations.map(vl => vl.location));
+      setTags(personData.tags.map(t => t.tag));
+      setIsStarred(personData.isStarred);
+      fetchCitiesForCountry(personData.country);
+    }
+  }, [fetchCountries, isEditing, personData, fetchCitiesForCountry]);
 
   const handleCountryChange = (selectedCountry: string) => {
     console.log('Country changed to:', selectedCountry);
@@ -175,8 +195,10 @@ export default function AddPerson() {
       return;
     }
     try {
-      const response = await fetch('/api/people', {
-        method: 'POST',
+      const url = isEditing ? `/api/people/${personData.id}` : '/api/people';
+      const method = isEditing ? 'PUT' : 'POST';
+      const response = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -193,8 +215,9 @@ export default function AddPerson() {
       if (data.success) {
         resetForm();
         setIsDialogOpen(false);
+        onClose(); // Call onClose after successful save
       } else {
-        alert('Failed to save person. Please try again.');
+        alert(isEditing ? 'Failed to update person. Please try again.' : 'Failed to save person. Please try again.');
       }
     } catch (error) {
       console.error('Error saving person:', error);
@@ -226,15 +249,20 @@ export default function AddPerson() {
   }, [name]);
 
   return (
-    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-      <DialogTrigger asChild>
-        <Button className="bg-green-500 hover:bg-green-600 text-white" onClick={() => setIsDialogOpen(true)}>Add Person</Button>
-      </DialogTrigger>
+    <Dialog open={isDialogOpen} onOpenChange={(open) => {
+      setIsDialogOpen(open);
+      if (!open) onClose(); // Call onClose when dialog is closed
+    }}>
+      {!isEditing && (
+        <DialogTrigger asChild>
+          <Button className="bg-green-500 hover:bg-green-600 text-white" onClick={() => setIsDialogOpen(true)}>Add Person</Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="w-[90vw] max-w-[400px] sm:max-w-[500px] md:max-w-[600px] lg:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <Card className="w-full border-0 shadow-none">
           <CardHeader className="relative">
             <CardTitle className="flex items-center">
-              Add Person
+              {isEditing ? 'Edit Person' : 'Add Person'}
             </CardTitle>
             <Button
               variant="ghost"
@@ -376,7 +404,7 @@ export default function AddPerson() {
               <div className="text-red-500 mb-4">{error}</div>
             )}
 
-            <Button onClick={handleSave} className="w-full">Save Person</Button>
+            <Button onClick={handleSave} className="w-full">{isEditing ? 'Update Person' : 'Save Person'}</Button>
           </CardContent>
         </Card>
       </DialogContent>
