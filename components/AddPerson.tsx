@@ -9,12 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Star, X, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import axios from 'axios';
 
 const defaultTags = ['Best Friend', 'Family', 'Colleague', 'Acquaintance'];
 
 export default function AddPerson() {
   const [name, setName] = useState('');
-  const [countrySearch, setCountrySearch] = useState('');
   const [countries, setCountries] = useState<string[]>([]);
   const [country, setCountry] = useState('');
   const [citySearch, setCitySearch] = useState('');
@@ -31,6 +31,7 @@ export default function AddPerson() {
   const [initials, setInitials] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [focusedCityIndex, setFocusedCityIndex] = useState(-1);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const debouncedFilterCities = useCallback(
     debounce((searchTerm: string) => {
@@ -92,57 +93,58 @@ export default function AddPerson() {
     }
   };
 
-  const fetchCountries = async (search: string) => {
+  const fetchCountries = useCallback(async (search: string) => {
     try {
-      const response = await fetch('https://countriesnow.space/api/v0.1/countries', {
-        method: 'GET',
-      });
-      const data = await response.json();
-      if (data.error === false && Array.isArray(data.data)) {
-        const filteredCountries = data.data
-          .map((country: { country: string }) => country.country)
-          .filter((country: string) => country.toLowerCase().includes(search.toLowerCase()));
-        setCountries(filteredCountries);
-      }
+      setError(null);
+      const response = await axios.get(`https://countriesnow.space/api/v0.1/countries/positions`);
+      const countries = response.data.data.map((item: any) => item.name);
+      const filteredCountries = countries.filter((country: string) =>
+        country.toLowerCase().includes(search.toLowerCase())
+      );
+      setCountries(filteredCountries);
     } catch (error) {
       console.error('Error fetching countries:', error);
-      setError('Failed to fetch countries. Please try again later.');
+      setError('Failed to fetch countries. Please try again.');
     }
-  };
+  }, []);
 
-  const fetchCitiesForCountry = async (selectedCountry: string) => {
-    setIsLoadingCities(true);
-    setError(null);
+  const fetchCitiesForCountry = useCallback(async (country: string, search: string = '') => {
     try {
-      const response = await fetch('https://countriesnow.space/api/v0.1/countries/cities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ country: selectedCountry }),
+      setError(null);
+      setIsLoadingCities(true);
+      const response = await axios.post(`https://countriesnow.space/api/v0.1/countries/cities`, {
+        country: country
       });
-      const data = await response.json();
-      if (data.error === false && Array.isArray(data.data)) {
-        setCities(data.data);
+      if (response.data && response.data.data) {
+        setCities(response.data.data);
       } else {
-        throw new Error('Failed to fetch cities');
+        throw new Error('Invalid response format');
       }
     } catch (error) {
       console.error('Error fetching cities:', error);
-      setError('Failed to fetch cities. Please try again later.');
+      setError('Failed to fetch cities. Please try again.');
+      setCities([]);
     } finally {
       setIsLoadingCities(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchCountries('');
-  }, []);
+  }, [fetchCountries]);
 
   const handleCountryChange = (selectedCountry: string) => {
-    console.log('Country changed to:', selectedCountry); // Debug log
+    console.log('Country changed to:', selectedCountry);
     setCountry(selectedCountry);
     setSelectedCity('');
     setCitySearch('');
-    fetchCitiesForCountry(selectedCountry);
+    fetchCitiesForCountry(selectedCountry)
+      .then(() => {
+        console.log('Cities fetched successfully');
+        console.log('Number of cities:', cities.length);
+        console.log('First few cities:', cities.slice(0, 5));
+      })
+      .catch((error) => console.error('Error in fetchCitiesForCountry:', error));
   };
 
   const handleAddLocation = () => {
@@ -167,13 +169,49 @@ export default function AddPerson() {
     setTags(tags.filter(t => t !== tag));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) {
       alert('Name is required');
       return;
     }
-    // Here you would typically save the data to your backend
-    console.log({ name, country, selectedCity, visitedLocations, tags, isStarred });
+    try {
+      const response = await fetch('/api/people', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          name, 
+          country, 
+          city: citySearch,
+          visitedLocations, 
+          tags, 
+          isStarred 
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        resetForm();
+        setIsDialogOpen(false);
+      } else {
+        alert('Failed to save person. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error saving person:', error);
+      alert('An error occurred while saving. Please try again.');
+    }
+  };
+
+  const resetForm = () => {
+    setName('');
+    setCountry('');
+    setSelectedCity('');
+    setCitySearch('');
+    setVisitedLocations([]);
+    setTags([]);
+    setNewTag('');
+    setIsStarred(false);
+    setInitials('');
   };
 
   useEffect(() => {
@@ -188,9 +226,9 @@ export default function AddPerson() {
   }, [name]);
 
   return (
-    <Dialog>
+    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
       <DialogTrigger asChild>
-        <Button className="bg-green-500 hover:bg-green-600 text-white">Add Person</Button>
+        <Button className="bg-green-500 hover:bg-green-600 text-white" onClick={() => setIsDialogOpen(true)}>Add Person</Button>
       </DialogTrigger>
       <DialogContent className="w-[90vw] max-w-[400px] sm:max-w-[500px] md:max-w-[600px] lg:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <Card className="w-full border-0 shadow-none">
