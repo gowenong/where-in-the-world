@@ -61,6 +61,12 @@ Before you begin, ensure you have the following installed:
 
 8. Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+9. (Optional) Run Prisma Studio to view and edit your data:
+   ```bash
+   npx prisma studio
+   ```
+   This will open Prisma Studio in your default web browser, typically at http://localhost:5555
+
 ## Features
 
 - Add people with their name, country, city, and profile picture (with initials)
