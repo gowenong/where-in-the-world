@@ -7,19 +7,22 @@ export async function GET(request: Request) {
   const starred = searchParams.get('starred') === 'true';
 
   try {
-    const people = await prisma.person.findMany({
-      where: {
-        ...(starred ? { isStarred: true } : {}),
-        ...(tags.length > 0 ? {
-          tags: {
-            some: {
-              tag: {
-                in: tags
-              }
-            }
+    const where: any = {};
+    if (starred) {
+      where.isStarred = true;
+    }
+    if (tags.length > 0) {
+      where.tags = {
+        some: {
+          tag: {
+            in: tags
           }
-        } : {}),
-      },
+        }
+      };
+    }
+
+    const people = await prisma.person.findMany({
+      where,
       include: {
         visitedLocations: true,
         tags: true,

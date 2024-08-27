@@ -3,13 +3,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
 import AddPerson from "@/components/AddPerson"
 import PersonSearchResult from "@/components/PersonSearchResult"
 import axios from 'axios';
 import { X } from 'lucide-react';
 import ViewPerson from '@/components/ViewPerson';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
+import { Star } from 'lucide-react';
 
 export function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -26,6 +26,20 @@ export function Dashboard() {
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [filteredPeople, setFilteredPeople] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isFilteredLoading, setIsFilteredLoading] = useState(false);
+  const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
+
+  const getInitials = (name: string) => {
+    const nameParts = name.trim().split(/\s+/);
+    if (nameParts.length === 0 || name.trim() === '') {
+      return '';
+    } else if (nameParts.length === 1) {
+      return nameParts[0].charAt(0).toUpperCase();
+    } else {
+      return (nameParts[0].charAt(0) + nameParts[nameParts.length - 1].charAt(0)).toUpperCase();
+    }
+  };
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
@@ -40,8 +54,8 @@ export function Dashboard() {
   }, [searchQuery]);
 
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (searchRef.current && !searchRef.current.contains(event.target)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchRef.current && !(searchRef.current as Node).contains(event.target as Node)) {
         setShowDropdown(false);
       }
     };
@@ -79,11 +93,12 @@ export function Dashboard() {
     }
   };
 
-  const handleEdit = async (person) => {
+  const handleEdit = async (person: { id: number }) => {
     try {
       const response = await axios.get(`/api/people/${person.id}`);
       if (response.data && response.data.success) {
         setEditingPerson(response.data.person);
+        setViewingPerson(null); // Close the ViewPerson card
       } else {
         console.error('Failed to fetch full person data');
       }
@@ -94,6 +109,9 @@ export function Dashboard() {
 
   const handleCloseEdit = () => {
     setEditingPerson(null);
+    if (viewingPerson) {
+      handleView(viewingPerson);
+    }
   };
 
   const handleClearSearch = () => {
@@ -111,17 +129,23 @@ export function Dashboard() {
     console.log("Searching for location:", locationQuery);
   };
 
-  const handleView = async (person) => {
+  const handleView = async (person: { id: number }) => {
+    if (isLoading) return;
+
     try {
+      setIsLoading(true);
       const response = await axios.get(`/api/people/${person.id}`);
       if (response.data && response.data.success) {
         setViewingPerson(response.data.person);
         setShowDropdown(false);
       } else {
-        console.error('Failed to fetch full person data');
+        throw new Error('Failed to fetch full person data');
       }
     } catch (error) {
       console.error('Error fetching person data:', error);
+      alert('An error occurred while loading person data. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -130,32 +154,33 @@ export function Dashboard() {
   };
 
   const fetchFilteredPeople = async () => {
-    console.log('Fetching filtered people. Filter type:', filterType, 'Selected tags:', selectedTags);
+    setIsFilteredLoading(true);
     try {
-      let url = '/api/people/filter?';
-      if (filterType === 'starred') {
-        url += 'starred=true';
-      } else if (filterType === 'tags' && selectedTags) {
-        // Check if selectedTags is an array
-        if (Array.isArray(selectedTags)) {
-          url += `tags=${selectedTags.join(',')}`;
-        } else {
-          // If it's a single tag, use it directly
-          url += `tags=${selectedTags}`;
+      const params = new URLSearchParams();
+      if (filterType === 'tags' && selectedTags) {
+        const tagsArray = Array.isArray(selectedTags) ? selectedTags : [selectedTags];
+        if (tagsArray.length > 0) {
+          params.append('tags', tagsArray.join(','));
         }
-      } else {
-        setFilteredPeople([]);
-        return;
+      } else if (filterType === 'starred') {
+        params.append('starred', 'true');
       }
-      console.log('Fetching URL:', url);
-      const response = await axios.get(url);
+
+      const response = await axios.get(`/api/people/filter?${params.toString()}`);
       if (response.data && response.data.success) {
-        console.log('Filtered people:', response.data.people);
-        setFilteredPeople(response.data.people);
+        const sortedPeople = response.data.people.sort((a: { name: string }, b: { name: string }) => 
+          a.name.localeCompare(b.name)
+        );
+        setFilteredPeople(sortedPeople);
+      } else {
+        console.error('Failed to fetch filtered people');
+        setFilteredPeople([]);
       }
     } catch (error) {
       console.error('Error fetching filtered people:', error);
       setFilteredPeople([]);
+    } finally {
+      setIsFilteredLoading(false);
     }
   };
 
@@ -175,9 +200,82 @@ export function Dashboard() {
   }, []);
 
   useEffect(() => {
-    console.log('Filter type or selected tags changed. Fetching filtered people.');
     fetchFilteredPeople();
   }, [filterType, selectedTags]);
+
+  useEffect(() => {
+    if (filterType === 'tags' && availableTags.length === 1 && selectedTags.length === 0) {
+      setSelectedTags([availableTags[0]]);
+    }
+  }, [filterType, availableTags, selectedTags]);
+
+  const handlePersonUpdate = async () => {
+    await fetchFilteredPeople();
+    await fetchAvailableTags();
+  };
+
+  const handleStarToggle = async (personId: number, isStarred: boolean) => {
+    try {
+      const response = await axios.put(`/api/people/${personId}`, { isStarred });
+      if (response.data && response.data.success) {
+        // Update filteredPeople state
+        setFilteredPeople(prevPeople => {
+          let updatedPeople = prevPeople.map((p: { id: number }) =>
+            p.id === personId ? { ...p, isStarred } : p
+          );
+          
+          if (filterType === 'starred') {
+            if (!isStarred) {
+              // Remove unstarred person from the list
+              updatedPeople = updatedPeople.filter((p: { id: number }) => p.id !== personId);
+            } else if (!prevPeople.some((p: { id: number }) => p.id === personId)) {
+              // Add newly starred person to the list
+              updatedPeople = [...updatedPeople, response.data.person].sort((a: { name: string }, b: { name: string }) => 
+                a.name.localeCompare(b.name)
+              );
+            }
+          }
+          
+          return updatedPeople;
+        });
+
+        // Update viewingPerson state if it's the same person
+        if (viewingPerson && viewingPerson.id === personId) {
+          setViewingPerson({ ...viewingPerson, isStarred });
+        }
+
+        // If we're not already viewing starred people and a person was starred,
+        // we might want to fetch the updated list of starred people
+        if (isStarred && filterType !== 'starred') {
+          fetchFilteredPeople();
+        }
+      } else {
+        throw new Error('Failed to update star status');
+      }
+    } catch (error) {
+      console.error('Error updating star status:', error);
+      alert('Failed to update star status. Please try again.');
+    }
+  };
+
+  const handleDeletePerson = async (personId: number) => {
+    try {
+      const response = await axios.delete(`/api/people/${personId}`);
+      if (response.data && response.data.success) {
+        setFilteredPeople(prevPeople => prevPeople.filter((p: { id: number }) => p.id !== personId));
+        setViewingPerson(null);
+      } else {
+        throw new Error('Failed to delete person');
+      }
+    } catch (error) {
+      console.error('Error deleting person:', error);
+      alert('An error occurred while deleting the person. Please try again.');
+    }
+  };
+
+  const handleAddPersonClose = () => {
+    setIsAddPersonOpen(false);
+  };
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -276,7 +374,13 @@ export function Dashboard() {
           </div>
           <Button onClick={handleLocationSearch} className="ml-2">Search</Button>
           <div className="flex-grow flex justify-end">
-            <AddPerson />
+            <AddPerson
+              isEditing={false}
+              personData={null}
+              onClose={handleAddPersonClose}
+              onUpdate={handlePersonUpdate}
+              availableTags={availableTags}
+            />
           </div>
         </div>
         
@@ -303,12 +407,13 @@ export function Dashboard() {
                   multiple
                   value={selectedTags}
                   onValueChange={(value) => {
-                    console.log('Selected tags changed:', value);
-                    setSelectedTags(value);
+                    setSelectedTags(Array.isArray(value) ? value : [value]);
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select tags" />
+                    <SelectValue placeholder="Select tags">
+                      {selectedTags.length > 0 ? selectedTags.join(', ') : 'Select tags'}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {availableTags.map((tag) => (
@@ -319,19 +424,29 @@ export function Dashboard() {
               </div>
             )}
             <div className="space-y-2">
-              {filterType === 'tags' && selectedTags.length === 0 ? (
+              {isFilteredLoading ? (
+                <div className="flex justify-center items-center h-20">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                </div>
+              ) : filterType === 'tags' && availableTags.length === 0 ? (
+                <p>No tags available.</p>
+              ) : filterType === 'tags' && availableTags.length === 1 && selectedTags.length === 0 ? (
+                <p>Showing people for the only available tag: {availableTags[0]}</p>
+              ) : filterType === 'tags' && selectedTags.length === 0 ? (
                 <p>Please select a tag to view people.</p>
               ) : filteredPeople.length > 0 ? (
                 filteredPeople.map((person) => (
                   <div
                     key={person.id}
                     className="flex items-center justify-between p-2 rounded-md transition-colors duration-200 hover:bg-gray-200 cursor-pointer"
-                    onClick={() => handleView(person)}
                   >
-                    <div className="flex items-center">
+                    <div 
+                      className="flex items-center flex-grow"
+                      onClick={() => !isLoading && handleView(person)}
+                    >
                       <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center mr-3">
                         <span className="text-sm font-semibold">
-                          {person.name.split(' ').map((n) => n[0]).join('').toUpperCase()}
+                          {getInitials(person.name)}
                         </span>
                       </div>
                       <div>
@@ -341,16 +456,17 @@ export function Dashboard() {
                         </p>
                       </div>
                     </div>
-                    {person.isStarred && (
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                        className="w-5 h-5 text-yellow-500"
-                      >
-                        <path fillRule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.007 5.404.433c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.433 2.082-5.006z" clipRule="evenodd" />
-                      </svg>
-                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="hover:bg-transparent"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStarToggle(person.id, !person.isStarred);
+                      }}
+                    >
+                      <Star className={`h-5 w-5 ${person.isStarred ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`} />
+                    </Button>
                   </div>
                 ))
               ) : (
@@ -371,16 +487,22 @@ export function Dashboard() {
           isEditing={true}
           personData={editingPerson}
           onClose={handleCloseEdit}
+          onUpdate={handlePersonUpdate}
+          onEditClose={() => {
+            if (viewingPerson) {
+              handleView(viewingPerson);
+            }
+          }}
+          availableTags={availableTags}
         />
       )}
       {viewingPerson && (
         <ViewPerson
           person={viewingPerson}
-          onEdit={() => {
-            setEditingPerson(viewingPerson);
-            setViewingPerson(null);
-          }}
+          onEdit={() => handleEdit(viewingPerson)}
           onClose={handleCloseView}
+          onStarToggle={handleStarToggle}
+          onDelete={handleDeletePerson}
         />
       )}
     </div>

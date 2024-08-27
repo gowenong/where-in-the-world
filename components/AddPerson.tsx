@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, KeyboardEvent } from 'react';
+import React, { useState, useEffect, useCallback, KeyboardEvent } from 'react';
 import { debounce } from 'lodash';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import axios from 'axios';
 
 const defaultTags = ['Best Friend', 'Family', 'Colleague', 'Acquaintance'];
+const MAX_NAME_LENGTH = 50;
 
 type Person = {
   id: number;
@@ -23,7 +24,7 @@ type Person = {
   isStarred: boolean;
 };
 
-export default function AddPerson({ isEditing = false, personData = null as Person | null, onClose = () => {} }) {
+export default function AddPerson({ isEditing = false, personData = null as Person | null, onClose = () => {}, onUpdate = () => {}, availableTags = [] }) {
   const [name, setName] = useState(personData?.name || '');
   const [countries, setCountries] = useState<string[]>([]);
   const [country, setCountry] = useState(personData?.country || '');
@@ -42,6 +43,12 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
   const [error, setError] = useState<string | null>(null);
   const [focusedCityIndex, setFocusedCityIndex] = useState(-1);
   const [isDialogOpen, setIsDialogOpen] = useState(isEditing);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [internalTags, setInternalTags] = useState<string[]>(availableTags);
+
+  useEffect(() => {
+    setInternalTags(availableTags);
+  }, [availableTags]);
 
   const debouncedFilterCities = useCallback(
     debounce((searchTerm: string) => {
@@ -119,6 +126,10 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
   }, []);
 
   const fetchCitiesForCountry = useCallback(async (country: string, search: string = '') => {
+    if (!country) {
+      setCities([]);
+      return;
+    }
     try {
       setError(null);
       setIsLoadingCities(true);
@@ -143,13 +154,15 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
     fetchCountries('');
     if (isEditing && personData) {
       setName(personData.name);
-      setCountry(personData.country);
-      setCitySearch(personData.city);
-      setSelectedCity(personData.city);
+      setCountry(personData.country || '');
+      setCitySearch(personData.city || '');
+      setSelectedCity(personData.city || '');
       setVisitedLocations(personData.visitedLocations.map(vl => vl.location));
       setTags(personData.tags.map(t => t.tag));
       setIsStarred(personData.isStarred);
-      fetchCitiesForCountry(personData.country);
+      if (personData.country) {
+        fetchCitiesForCountry(personData.country);
+      }
     }
   }, [fetchCountries, isEditing, personData, fetchCitiesForCountry]);
 
@@ -158,13 +171,17 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
     setCountry(selectedCountry);
     setSelectedCity('');
     setCitySearch('');
-    fetchCitiesForCountry(selectedCountry)
-      .then(() => {
-        console.log('Cities fetched successfully');
-        console.log('Number of cities:', cities.length);
-        console.log('First few cities:', cities.slice(0, 5));
-      })
-      .catch((error) => console.error('Error in fetchCitiesForCountry:', error));
+    if (selectedCountry) {
+      fetchCitiesForCountry(selectedCountry)
+        .then(() => {
+          console.log('Cities fetched successfully');
+          console.log('Number of cities:', cities.length);
+          console.log('First few cities:', cities.slice(0, 5));
+        })
+        .catch((error) => console.error('Error in fetchCitiesForCountry:', error));
+    } else {
+      setCities([]);
+    }
   };
 
   const handleAddLocation = () => {
@@ -181,6 +198,10 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
   const handleAddTag = (tag: string) => {
     if (tag && !tags.includes(tag)) {
       setTags([...tags, tag]);
+      if (!internalTags.includes(tag)) {
+        setInternalTags([...internalTags, tag]);
+        onUpdate(); // Call onUpdate to refresh tags in the Dashboard
+      }
       setNewTag(''); // Clear the new tag input
     }
   };
@@ -189,39 +210,54 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
     setTags(tags.filter(t => t !== tag));
   };
 
-  const handleSave = async () => {
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError(null);
+
     if (!name.trim()) {
-      alert('Name is required');
+      setError('Name is required');
+      setIsSubmitting(false);
       return;
     }
+
     try {
-      const url = isEditing ? `/api/people/${personData.id}` : '/api/people';
+      const formData = {
+        name: name.trim(),
+        country,
+        city: selectedCity,
+        visitedLocations: visitedLocations.map(location => ({ location })),
+        tags: tags.map(tag => ({ tag })),
+        isStarred
+      };
+
+      const endpoint = isEditing ? `/api/people/${personData.id}` : '/api/people';
       const method = isEditing ? 'PUT' : 'POST';
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          name, 
-          country, 
-          city: citySearch,
-          visitedLocations, 
-          tags, 
-          isStarred 
-        }),
+      
+      const response = await axios({
+        method: method,
+        url: endpoint,
+        data: formData
       });
-      const data = await response.json();
-      if (data.success) {
+
+      if (response.data && response.data.success) {
+        // Update available tags in the parent component
+        const newTags = tags.filter(tag => !availableTags.includes(tag));
+        if (newTags.length > 0) {
+          setInternalTags([...internalTags, ...newTags]);
+        }
+        onUpdate();
         resetForm();
         setIsDialogOpen(false);
-        onClose(); // Call onClose after successful save
+        onClose();
       } else {
-        alert(isEditing ? 'Failed to update person. Please try again.' : 'Failed to save person. Please try again.');
+        throw new Error('Failed to save person');
       }
     } catch (error) {
       console.error('Error saving person:', error);
-      alert('An error occurred while saving. Please try again.');
+      setError('An error occurred while saving. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -238,7 +274,13 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
   };
 
   useEffect(() => {
-    const nameParts = name.trim().split(' ');
+    if (!isEditing && !personData) {
+      resetForm();
+    }
+  }, [isDialogOpen, isEditing, personData]);
+
+  useEffect(() => {
+    const nameParts = name.trim().split(/\s+/);
     if (nameParts.length === 0 || name.trim() === '') {
       setInitials('');
     } else if (nameParts.length === 1) {
@@ -251,7 +293,10 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
   return (
     <Dialog open={isDialogOpen} onOpenChange={(open) => {
       setIsDialogOpen(open);
-      if (!open) onClose(); // Call onClose when dialog is closed
+      if (!open) {
+        resetForm();
+        onClose();
+      }
     }}>
       {!isEditing && (
         <DialogTrigger asChild>
@@ -267,7 +312,7 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
             <Button
               variant="ghost"
               size="icon"
-              className="absolute top-4 right-4"
+              className="absolute top-4 right-4 hover:bg-transparent"
               onClick={() => setIsStarred(!isStarred)}
             >
               <Star className={`h-6 w-6 ${isStarred ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`} />
@@ -284,13 +329,17 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
               <Label htmlFor="name">
                 Name <span className="text-red-500">*</span>
               </Label>
-              <Input 
-                id="name" 
-                value={name} 
-                onChange={(e) => setName(e.target.value)} 
-                placeholder="Enter name" 
-                required 
+              <Input
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value.slice(0, MAX_NAME_LENGTH))}
+                maxLength={MAX_NAME_LENGTH}
+                placeholder="Enter name"
+                required
               />
+              <p className="text-sm text-gray-500 text-right">
+                {name.length}/{MAX_NAME_LENGTH}
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -370,7 +419,7 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
                     <SelectValue placeholder="Select tags" />
                   </SelectTrigger>
                   <SelectContent>
-                    {defaultTags.filter(tag => !tags.includes(tag)).map((tag) => (
+                    {internalTags.filter(tag => !tags.includes(tag)).map((tag) => (
                       <SelectItem key={tag} value={tag}>{tag}</SelectItem>
                     ))}
                   </SelectContent>

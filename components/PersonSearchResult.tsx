@@ -13,11 +13,18 @@ interface PersonSearchResultProps {
 }
 
 export default function PersonSearchResult({ person, onEdit, onView, isSelected }: PersonSearchResultProps) {
-  const initials = person.name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase();
+  const getInitials = (name: string) => {
+    const nameParts = name.trim().split(/\s+/);
+    if (nameParts.length === 0 || name.trim() === '') {
+      return '';
+    } else if (nameParts.length === 1) {
+      return nameParts[0].charAt(0).toUpperCase();
+    } else {
+      return (nameParts[0].charAt(0) + nameParts[nameParts.length - 1].charAt(0)).toUpperCase();
+    }
+  };
+
+  const initials = getInitials(person.name);
 
   const location = [person.city, person.country].filter(Boolean).join(', ');
 

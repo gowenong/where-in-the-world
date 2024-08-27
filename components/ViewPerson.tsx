@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Star, X, Edit } from 'lucide-react';
+import { Star, X, Edit, Trash2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 interface ViewPersonProps {
   person: {
@@ -15,14 +16,23 @@ interface ViewPersonProps {
   };
   onEdit: () => void;
   onClose: () => void;
+  onStarToggle: (personId: number, isStarred: boolean) => void;
+  onDelete: (personId: number) => void;
 }
 
-export default function ViewPerson({ person, onEdit, onClose }: ViewPersonProps) {
-  const initials = person.name
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase();
+const getInitials = (name: string) => {
+  const nameParts = name.trim().split(/\s+/);
+  if (nameParts.length === 0 || name.trim() === '') {
+    return '';
+  } else if (nameParts.length === 1) {
+    return nameParts[0].charAt(0).toUpperCase();
+  } else {
+    return (nameParts[0].charAt(0) + nameParts[nameParts.length - 1].charAt(0)).toUpperCase();
+  }
+};
+
+export default function ViewPerson({ person, onEdit, onClose, onStarToggle, onDelete }: ViewPersonProps) {
+  const initials = getInitials(person.name);
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
@@ -31,6 +41,13 @@ export default function ViewPerson({ person, onEdit, onClose }: ViewPersonProps)
   };
 
   const location = [person.city, person.country].filter(Boolean).join(', ');
+
+  const handleStarToggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onStarToggle(person.id, !person.isStarred);
+  };
+
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={handleOverlayClick}>
@@ -45,6 +62,13 @@ export default function ViewPerson({ person, onEdit, onClose }: ViewPersonProps)
                 onClick={onEdit}
               >
                 <Edit className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="destructive"
+                size="icon"
+                onClick={() => setShowDeleteConfirmation(true)}
+              >
+                <Trash2 className="h-4 w-4" />
               </Button>
               <Button
                 variant="ghost"
@@ -64,7 +88,10 @@ export default function ViewPerson({ person, onEdit, onClose }: ViewPersonProps)
             <div>
               <div className="flex items-center space-x-2">
                 <h2 className="text-2xl font-bold">{person.name}</h2>
-                {person.isStarred && <Star className="h-6 w-6 text-yellow-400 fill-yellow-400" />}
+                <Star
+                  className={`h-6 w-6 cursor-pointer ${person.isStarred ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`}
+                  onClick={handleStarToggle}
+                />
               </div>
               {location && <p className="text-gray-500">{location}</p>}
             </div>
@@ -101,6 +128,30 @@ export default function ViewPerson({ person, onEdit, onClose }: ViewPersonProps)
           </div>
         </CardContent>
       </Card>
+      <Dialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Deletion</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {person.name}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteConfirmation(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                onDelete(person.id);
+                setShowDeleteConfirmation(false);
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

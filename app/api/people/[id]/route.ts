@@ -7,30 +7,47 @@ export async function PUT(
 ) {
   try {
     const id = parseInt(params.id, 10);
-    const { name, country, city, visitedLocations, tags, isStarred } = await request.json();
+    if (isNaN(id)) {
+      return NextResponse.json({ success: false, error: 'Invalid ID' }, { status: 400 });
+    }
+
+    const body = await request.json();
+    console.log('Received update data:', body);
+
+    const { isStarred, visitedLocations, tags, ...otherData } = body;
+
+    if (typeof isStarred !== 'boolean') {
+      return NextResponse.json({ success: false, error: 'Invalid isStarred value' }, { status: 400 });
+    }
 
     const updatedPerson = await prisma.person.update({
       where: { id },
       data: {
-        name,
-        country,
-        city,
+        ...otherData,
         isStarred,
-        visitedLocations: {
+        visitedLocations: visitedLocations ? {
           deleteMany: {},
-          create: visitedLocations.map((location: string) => ({ location })),
-        },
-        tags: {
+          create: visitedLocations.map(({ location }) => ({ location }))
+        } : undefined,
+        tags: tags ? {
           deleteMany: {},
-          create: tags.map((tag: string) => ({ tag })),
-        },
+          create: tags.map(({ tag }) => ({ tag }))
+        } : undefined
       },
+      include: {
+        visitedLocations: true,
+        tags: true
+      }
     });
 
+    console.log('Updated person:', updatedPerson);
     return NextResponse.json({ success: true, person: updatedPerson });
   } catch (error) {
-    console.error('Error updating person:', error);
-    return NextResponse.json({ success: false, error: 'Failed to update person' }, { status: 500 });
+    console.error('Detailed error updating person:', error);
+    if (error.code === 'P2025') {
+      return NextResponse.json({ success: false, error: 'Person not found' }, { status: 404 });
+    }
+    return NextResponse.json({ success: false, error: 'Failed to update person', details: error.message }, { status: 500 });
   }
 }
 
@@ -65,9 +82,14 @@ export async function DELETE(
 ) {
   try {
     const id = parseInt(params.id, 10);
+    if (isNaN(id)) {
+      return NextResponse.json({ success: false, error: 'Invalid ID' }, { status: 400 });
+    }
+
     await prisma.person.delete({
       where: { id },
     });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting person:', error);
