@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   const limit = parseInt(searchParams.get('limit') || '10', 10);
 
   if (!query) {
-    return NextResponse.json({ people: [] });
+    return NextResponse.json({ success: false, error: 'Search query is required' }, { status: 400 });
   }
 
   try {
@@ -27,9 +27,13 @@ export async function GET(request: Request) {
       },
     });
 
-    return NextResponse.json({ people });
+    return NextResponse.json({ success: true, people });
   } catch (error) {
     console.error('Detailed error:', error);
-    return NextResponse.json({ error: 'Failed to search people', details: error.message }, { status: 500 });
+    return NextResponse.json({ 
+      success: false, 
+      error: 'Failed to search people', 
+      details: error instanceof Error ? error.message : 'An unexpected error occurred'
+    }, { status: 500 });
   }
 }

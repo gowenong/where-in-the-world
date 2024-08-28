@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Star, X, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import axios from 'axios';
+import { Toast } from "@/components/ui/toast"
 
 const defaultTags = ['Best Friend', 'Family', 'Colleague', 'Acquaintance'];
 const MAX_NAME_LENGTH = 50;
@@ -34,9 +35,11 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
   const [showCityDropdown, setShowCityDropdown] = useState(false);
   const [isLoadingCities, setIsLoadingCities] = useState(false);
   const [cities, setCities] = useState<string[]>([]);
-  const [visitedLocations, setVisitedLocations] = useState<string[]>(personData?.visitedLocations.map(vl => vl.location) || []);
+  const [visitedLocations, setVisitedLocations] = useState<{ id: number; location: string }[]>(
+    personData?.visitedLocations || []
+  );
   const [newLocation, setNewLocation] = useState('');
-  const [tags, setTags] = useState<string[]>(personData?.tags.map(t => t.tag) || []);
+  const [tags, setTags] = useState<string[]>(personData?.tags.map(tag => tag.tag) || []);
   const [newTag, setNewTag] = useState('');
   const [isStarred, setIsStarred] = useState(personData?.isStarred || false);
   const [initials, setInitials] = useState('');
@@ -45,6 +48,8 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
   const [isDialogOpen, setIsDialogOpen] = useState(isEditing);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [internalTags, setInternalTags] = useState<string[]>(availableTags);
+  const [cityError, setCityError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     setInternalTags(availableTags);
@@ -110,6 +115,17 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
     }
   };
 
+  const handleApiError = (error: any, customMessage: string) => {
+    console.error(customMessage, error);
+    let errorMessage = customMessage;
+    if (axios.isAxiosError(error) && error.response) {
+      errorMessage += `: ${error.response.data.error || 'An unexpected error occurred'}`;
+    } else if (error instanceof Error) {
+      errorMessage += `: ${error.message}`;
+    }
+    setToast({ message: errorMessage, type: 'error' });
+  };
+
   const fetchCountries = useCallback(async (search: string) => {
     try {
       setError(null);
@@ -120,8 +136,7 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
       );
       setCountries(filteredCountries);
     } catch (error) {
-      console.error('Error fetching countries:', error);
-      setError('Failed to fetch countries. Please try again.');
+      handleApiError(error, 'Failed to fetch countries');
     }
   }, []);
 
@@ -142,8 +157,7 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
         throw new Error('Invalid response format');
       }
     } catch (error) {
-      console.error('Error fetching cities:', error);
-      setError('Failed to fetch cities. Please try again.');
+      handleApiError(error, 'Failed to fetch cities');
       setCities([]);
     } finally {
       setIsLoadingCities(false);
@@ -157,8 +171,8 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
       setCountry(personData.country || '');
       setCitySearch(personData.city || '');
       setSelectedCity(personData.city || '');
-      setVisitedLocations(personData.visitedLocations.map(vl => vl.location));
-      setTags(personData.tags.map(t => t.tag));
+      setVisitedLocations(personData.visitedLocations);
+      setTags(personData.tags.map(tag => tag.tag));
       setIsStarred(personData.isStarred);
       if (personData.country) {
         fetchCitiesForCountry(personData.country);
@@ -185,14 +199,14 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
   };
 
   const handleAddLocation = () => {
-    if (newLocation && !visitedLocations.includes(newLocation)) {
-      setVisitedLocations([...visitedLocations, newLocation]);
+    if (newLocation && !visitedLocations.some(loc => loc.location === newLocation)) {
+      setVisitedLocations([...visitedLocations, { id: Date.now(), location: newLocation }]);
       setNewLocation('');
     }
   };
 
-  const handleRemoveLocation = (location: string) => {
-    setVisitedLocations(visitedLocations.filter(loc => loc !== location));
+  const handleRemoveLocation = (locationId: number) => {
+    setVisitedLocations(visitedLocations.filter(loc => loc.id !== locationId));
   };
 
   const handleAddTag = (tag: string) => {
@@ -214,6 +228,7 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
+    setCityError(null);
 
     if (!name.trim()) {
       setError('Name is required');
@@ -221,17 +236,23 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
       return;
     }
 
+    if (country && !selectedCity) {
+      setCityError('City is required when a country is selected');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       const formData = {
         name: name.trim(),
-        country,
-        city: selectedCity,
-        visitedLocations: visitedLocations.map(location => ({ location })),
-        tags: tags.map(tag => ({ tag })),
+        country: country || null,
+        city: selectedCity || null,
+        visitedLocations: visitedLocations.map(loc => loc.location),
+        tags,
         isStarred
       };
 
-      const endpoint = isEditing ? `/api/people/${personData.id}` : '/api/people';
+      const endpoint = isEditing ? `/api/people/${personData!.id}` : '/api/people';
       const method = isEditing ? 'PUT' : 'POST';
       
       const response = await axios({
@@ -250,12 +271,12 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
         resetForm();
         setIsDialogOpen(false);
         onClose();
+        setToast({ message: `Person ${isEditing ? 'updated' : 'added'} successfully`, type: 'success' });
       } else {
         throw new Error('Failed to save person');
       }
     } catch (error) {
-      console.error('Error saving person:', error);
-      setError('An error occurred while saving. Please try again.');
+      handleApiError(error, `Error ${isEditing ? 'updating' : 'adding'} person`);
     } finally {
       setIsSubmitting(false);
     }
@@ -367,6 +388,7 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
                   placeholder={isLoadingCities ? "Loading cities..." : "Search for a city"}
                   disabled={!country || isLoadingCities}
                 />
+                {cityError && <p className="text-red-500 text-sm mt-1">{cityError}</p>}
                 {showCityDropdown && citySearch && filteredCities.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
                     {filteredCities.map((c, index) => (
@@ -398,10 +420,10 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
                 <Button onClick={handleAddLocation} size="icon"><Plus className="h-4 w-4" /></Button>
               </div>
               <div className="flex flex-wrap gap-2 mt-2 max-h-24 overflow-y-auto">
-                {visitedLocations.map((location, index) => (
-                  <span key={index} className="bg-secondary text-secondary-foreground px-2 py-1 rounded-full text-sm flex items-center">
-                    {location}
-                    <Button variant="ghost" size="icon" onClick={() => handleRemoveLocation(location)} className="ml-1 h-4 w-4 p-0">
+                {visitedLocations.map((location) => (
+                  <span key={location.id} className="bg-secondary text-secondary-foreground px-2 py-1 rounded-full text-sm flex items-center">
+                    {location.location}
+                    <Button variant="ghost" size="icon" onClick={() => handleRemoveLocation(location.id)} className="ml-1 h-4 w-4 p-0">
                       <X className="h-3 w-3" />
                     </Button>
                   </span>
@@ -457,6 +479,13 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
           </CardContent>
         </Card>
       </DialogContent>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </Dialog>
   );
 }

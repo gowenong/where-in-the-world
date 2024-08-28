@@ -19,20 +19,29 @@ model Person {
   country          String?
   city             String?
   isStarred        Boolean            @default(false)
-  visitedLocations VisitedLocation[]  @relation("PersonToVisitedLocation")
-  tags             Tag[]              @relation("PersonToTag")
+  visitedLocations VisitedLocation[]
+  tags             Tag[]
+  countryCity      CountryCity?       @relation(fields: [countryCityId], references: [id])
+  countryCityId    Int?
 }
 
 model VisitedLocation {
-  id       Int    @id @default(autoincrement())
-  personId Int
+  id       Int      @id @default(autoincrement())
   location String
-  person   Person @relation("PersonToVisitedLocation", fields: [personId], references: [id], onDelete: Cascade)
+  persons  Person[]
 }
 
 model Tag {
-  id       Int    @id @default(autoincrement())
-  personId Int
-  tag      String
-  person   Person @relation("PersonToTag", fields: [personId], references: [id], onDelete: Cascade)
+  id      Int      @id @default(autoincrement())
+  tag     String
+  persons Person[]
+}
+
+model CountryCity {
+  id      Int      @id @default(autoincrement())
+  country String
+  city    String
+  persons Person[]
+
+  @@unique([country, city])
 }

@@ -10,6 +10,17 @@ import { X } from 'lucide-react';
 import ViewPerson from '@/components/ViewPerson';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 import { Star } from 'lucide-react';
+import { Toast } from "@/components/ui/toast"
+
+type Person = {
+  id: number;
+  name: string;
+  country: string;
+  city: string;
+  visitedLocations: { id: number; location: string }[];
+  tags: { id: number; tag: string }[];
+  isStarred: boolean;
+};
 
 export function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -29,6 +40,7 @@ export function Dashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [isFilteredLoading, setIsFilteredLoading] = useState(false);
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const getInitials = (name: string) => {
     const nameParts = name.trim().split(/\s+/);
@@ -66,6 +78,13 @@ export function Dashboard() {
     };
   }, []);
 
+  const handleApiError = (error: unknown, defaultMessage: string) => {
+    if (axios.isAxiosError(error) && error.response) {
+      return error.response.data.error || defaultMessage;
+    }
+    return defaultMessage;
+  };
+
   const searchPeople = async () => {
     setIsSearching(true);
     setSearchError(null);
@@ -79,13 +98,8 @@ export function Dashboard() {
         setShowDropdown(false);
       }
     } catch (error) {
-      console.error('Error searching people:', error);
-      if (axios.isAxiosError(error) && error.response) {
-        console.error('Response data:', error.response.data);
-        setSearchError(error.response.data.error || 'An error occurred while searching');
-      } else {
-        setSearchError('An unexpected error occurred');
-      }
+      const errorMessage = handleApiError(error, 'An error occurred while searching');
+      setSearchError(errorMessage);
       setSearchResults([]);
       setShowDropdown(false);
     } finally {
@@ -98,12 +112,13 @@ export function Dashboard() {
       const response = await axios.get(`/api/people/${person.id}`);
       if (response.data && response.data.success) {
         setEditingPerson(response.data.person);
-        setViewingPerson(null); // Close the ViewPerson card
+        setViewingPerson(null);
       } else {
-        console.error('Failed to fetch full person data');
+        throw new Error('Failed to fetch full person data');
       }
     } catch (error) {
-      console.error('Error fetching person data:', error);
+      const errorMessage = handleApiError(error, 'Failed to fetch person data');
+      alert(errorMessage);
     }
   };
 
@@ -142,8 +157,8 @@ export function Dashboard() {
         throw new Error('Failed to fetch full person data');
       }
     } catch (error) {
-      console.error('Error fetching person data:', error);
-      alert('An error occurred while loading person data. Please try again.');
+      const errorMessage = handleApiError(error, 'Failed to load person data');
+      alert(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -153,32 +168,28 @@ export function Dashboard() {
     setViewingPerson(null);
   };
 
-  const fetchFilteredPeople = async () => {
+  const handleFilterChange = async () => {
     setIsFilteredLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filterType === 'tags' && selectedTags) {
-        const tagsArray = Array.isArray(selectedTags) ? selectedTags : [selectedTags];
-        if (tagsArray.length > 0) {
-          params.append('tags', tagsArray.join(','));
-        }
-      } else if (filterType === 'starred') {
-        params.append('starred', 'true');
+      let queryParams = new URLSearchParams();
+      if (filterType === 'starred') {
+        queryParams.append('starred', 'true');
+      } else if (selectedTags.length > 0) {
+        queryParams.append('tags', selectedTags.join(','));
+      }
+      if (locationQuery) {
+        queryParams.append('location', locationQuery);
       }
 
-      const response = await axios.get(`/api/people/filter?${params.toString()}`);
-      if (response.data && response.data.success) {
-        const sortedPeople = response.data.people.sort((a: { name: string }, b: { name: string }) => 
-          a.name.localeCompare(b.name)
-        );
-        setFilteredPeople(sortedPeople);
+      const response = await axios.get(`/api/people/filter?${queryParams.toString()}`);
+      if (response.data.success) {
+        setFilteredPeople(response.data.people);
       } else {
-        console.error('Failed to fetch filtered people');
-        setFilteredPeople([]);
+        throw new Error('Failed to fetch filtered people');
       }
     } catch (error) {
-      console.error('Error fetching filtered people:', error);
-      setFilteredPeople([]);
+      const errorMessage = handleApiError(error, 'Failed to fetch filtered people');
+      alert(errorMessage);
     } finally {
       setIsFilteredLoading(false);
     }
@@ -189,9 +200,12 @@ export function Dashboard() {
       const response = await axios.get('/api/tags');
       if (response.data && response.data.tags) {
         setAvailableTags(response.data.tags);
+      } else {
+        throw new Error('Failed to fetch available tags');
       }
     } catch (error) {
-      console.error('Error fetching available tags:', error);
+      const errorMessage = handleApiError(error, 'Failed to fetch available tags');
+      alert(errorMessage);
     }
   };
 
@@ -200,8 +214,8 @@ export function Dashboard() {
   }, []);
 
   useEffect(() => {
-    fetchFilteredPeople();
-  }, [filterType, selectedTags]);
+    handleFilterChange();
+  }, [filterType, selectedTags, locationQuery]);
 
   useEffect(() => {
     if (filterType === 'tags' && availableTags.length === 1 && selectedTags.length === 0) {
@@ -210,7 +224,7 @@ export function Dashboard() {
   }, [filterType, availableTags, selectedTags]);
 
   const handlePersonUpdate = async () => {
-    await fetchFilteredPeople();
+    await handleFilterChange();
     await fetchAvailableTags();
   };
 
@@ -247,14 +261,16 @@ export function Dashboard() {
         // If we're not already viewing starred people and a person was starred,
         // we might want to fetch the updated list of starred people
         if (isStarred && filterType !== 'starred') {
-          fetchFilteredPeople();
+          handleFilterChange();
         }
+
+        setToast({ message: `Person ${isStarred ? 'starred' : 'unstarred'} successfully`, type: 'success' });
       } else {
         throw new Error('Failed to update star status');
       }
     } catch (error) {
-      console.error('Error updating star status:', error);
-      alert('Failed to update star status. Please try again.');
+      const errorMessage = handleApiError(error, 'Failed to update star status');
+      alert(errorMessage);
     }
   };
 
@@ -264,12 +280,13 @@ export function Dashboard() {
       if (response.data && response.data.success) {
         setFilteredPeople(prevPeople => prevPeople.filter((p: { id: number }) => p.id !== personId));
         setViewingPerson(null);
+        setToast({ message: 'Person deleted successfully', type: 'success' });
       } else {
         throw new Error('Failed to delete person');
       }
     } catch (error) {
-      console.error('Error deleting person:', error);
-      alert('An error occurred while deleting the person. Please try again.');
+      const errorMessage = handleApiError(error, 'Failed to delete person');
+      setToast({ message: errorMessage, type: 'error' });
     }
   };
 
@@ -435,31 +452,24 @@ export function Dashboard() {
               ) : filterType === 'tags' && selectedTags.length === 0 ? (
                 <p>Please select a tag to view people.</p>
               ) : filteredPeople.length > 0 ? (
-                filteredPeople.map((person) => (
+                filteredPeople.map((person: Person) => (
                   <div
                     key={person.id}
-                    className="flex items-center justify-between p-2 rounded-md transition-colors duration-200 hover:bg-gray-200 cursor-pointer"
+                    className="flex items-center justify-between p-2 hover:bg-gray-100 cursor-pointer"
+                    onClick={() => handleView(person)}
                   >
-                    <div 
-                      className="flex items-center flex-grow"
-                      onClick={() => !isLoading && handleView(person)}
-                    >
+                    <div className="flex items-center">
                       <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center mr-3">
-                        <span className="text-sm font-semibold">
-                          {getInitials(person.name)}
-                        </span>
+                        <span className="text-sm font-semibold">{getInitials(person.name)}</span>
                       </div>
                       <div>
                         <p className="font-semibold">{person.name}</p>
-                        <p className="text-sm text-gray-500">
-                          {[person.city, person.country].filter(Boolean).join(', ')}
-                        </p>
+                        <p className="text-sm text-gray-500">{[person.city, person.country].filter(Boolean).join(', ')}</p>
                       </div>
                     </div>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="hover:bg-transparent"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleStarToggle(person.id, !person.isStarred);
@@ -503,6 +513,13 @@ export function Dashboard() {
           onClose={handleCloseView}
           onStarToggle={handleStarToggle}
           onDelete={handleDeletePerson}
+        />
+      )}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
         />
       )}
     </div>

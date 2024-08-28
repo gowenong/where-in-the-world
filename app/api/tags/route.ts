@@ -13,6 +13,10 @@ export async function GET() {
     return NextResponse.json({ success: true, tags: uniqueTags });
   } catch (error) {
     console.error('Error fetching tags:', error);
-    return NextResponse.json({ success: false, error: 'Failed to fetch tags' }, { status: 500 });
+    return NextResponse.json({ 
+      success: false, 
+      error: 'Failed to fetch tags', 
+      details: error instanceof Error ? error.message : 'An unexpected error occurred'
+    }, { status: 500 });
   }
 }
