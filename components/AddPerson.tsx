@@ -147,14 +147,18 @@ const AddPerson: React.FC<AddPersonProps> = ({ isEditing, personData, onClose, o
   const fetchCountries = useCallback(async (search: string) => {
     try {
       setError(null);
-      const response = await axios.get(`https://countriesnow.space/api/v0.1/countries/positions`);
+      const response = await axios.get(`https://countriesnow.space/api/v0.1/countries/positions`, {
+        timeout: 10000 // Set a timeout of 10 seconds
+      });
       const countries = response.data.data.map((item: any) => item.name);
       const filteredCountries = countries.filter((country: string) =>
         country.toLowerCase().includes(search.toLowerCase())
       );
       setCountries(filteredCountries);
     } catch (error) {
-      handleApiError(error, 'Failed to fetch countries');
+      console.error('Error fetching countries:', error);
+      setError('Failed to fetch countries. Please try again later.');
+      setCountries([]); // Set countries to an empty array to prevent undefined errors
     }
   }, []);
 
@@ -380,16 +384,26 @@ const AddPerson: React.FC<AddPersonProps> = ({ isEditing, personData, onClose, o
 
             <div className="space-y-2">
               <Label htmlFor="country">Country</Label>
-              <Select value={country} onValueChange={handleCountryChange}>
-                <SelectTrigger id="country">
-                  <SelectValue placeholder="Select country" />
-                </SelectTrigger>
-                <SelectContent>
-                  {countries.map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {countries.length > 0 ? (
+                <Select value={country} onValueChange={handleCountryChange}>
+                  <SelectTrigger id="country">
+                    <SelectValue placeholder="Select country" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {countries.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id="country"
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  placeholder="Enter country name"
+                />
+              )}
+              {error && <p className="text-red-500 text-sm">{error}</p>}
             </div>
 
             <div className="space-y-2">

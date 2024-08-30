@@ -12,6 +12,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Star } from 'lucide-react';
 import { Toast } from "@/components/ui/toast"
 import WorldMap from '@/components/WorldMap';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 type Person = {
   id: number;
@@ -302,7 +303,7 @@ export function Dashboard() {
   };
 
   useEffect(() => {
-    const loadInitialData = async () => {
+    const loadInitialData = async (retryCount = 0) => {
       try {
         setIsInitialLoading(true);
         const response = await axios.get('/api/people/filter');
@@ -318,6 +319,9 @@ export function Dashboard() {
       } catch (error) {
         const errorMessage = handleApiError(error, 'Failed to load initial data');
         setToast({ message: errorMessage, type: 'error' });
+        if (retryCount < 3) {
+          setTimeout(() => loadInitialData(retryCount + 1), 5000); // Retry after 5 seconds
+        }
       } finally {
         setIsInitialLoading(false);
       }
@@ -327,203 +331,205 @@ export function Dashboard() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <header className="bg-gray-800 text-white py-4">
-        <div className="container mx-auto flex justify-center items-center">
-          <h1 className="text-3xl font-bold">Where in the World</h1>
-        </div>
-      </header>
-      <div className="container mx-auto py-6 px-4">
-        <div className="grid grid-cols-4 gap-6">
-          <div className="col-span-1">
-            <div className="mb-6" ref={searchRef}>
-              <div className="relative">
-                <Input
-                  type="text"
-                  placeholder="Search people..."
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setShowDropdown(true);
-                    setSelectedIndex(-1);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault();
-                      setSelectedIndex((prevIndex) => {
-                        const nextIndex = prevIndex < searchResults.length - 1 ? prevIndex + 1 : prevIndex;
-                        const dropdown = document.querySelector('.search-results-dropdown');
-                        const selectedItem = dropdown?.children[nextIndex] as HTMLElement;
-                        if (selectedItem) {
-                          selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    <ErrorBoundary>
+      <div className="min-h-screen bg-gray-100">
+        <header className="bg-gray-800 text-white py-4">
+          <div className="container mx-auto flex justify-center items-center">
+            <h1 className="text-3xl font-bold">Where in the World</h1>
+          </div>
+        </header>
+        <div className="container mx-auto py-6 px-4">
+          <div className="grid grid-cols-4 gap-6">
+            <div className="col-span-1">
+              <div className="mb-6 relative" ref={searchRef}>
+                <div className="relative">
+                  <Input
+                    type="text"
+                    placeholder="Search people..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setShowDropdown(true);
+                      setSelectedIndex(-1);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setSelectedIndex((prevIndex) => {
+                          const nextIndex = prevIndex < searchResults.length - 1 ? prevIndex + 1 : prevIndex;
+                          const dropdown = document.querySelector('.search-results-dropdown');
+                          const selectedItem = dropdown?.children[nextIndex] as HTMLElement;
+                          if (selectedItem) {
+                            selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                          }
+                          return nextIndex;
+                        });
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setSelectedIndex((prevIndex) => {
+                          const nextIndex = prevIndex > 0 ? prevIndex - 1 : -1;
+                          const dropdown = document.querySelector('.search-results-dropdown');
+                          const selectedItem = dropdown?.children[nextIndex] as HTMLElement;
+                          if (selectedItem) {
+                            selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                          }
+                          return nextIndex;
+                        });
+                      } else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (selectedIndex >= 0 && selectedIndex < searchResults.length) {
+                          handleView(searchResults[selectedIndex]);
                         }
-                        return nextIndex;
-                      });
-                    } else if (e.key === 'ArrowUp') {
-                      e.preventDefault();
-                      setSelectedIndex((prevIndex) => {
-                        const nextIndex = prevIndex > 0 ? prevIndex - 1 : -1;
-                        const dropdown = document.querySelector('.search-results-dropdown');
-                        const selectedItem = dropdown?.children[nextIndex] as HTMLElement;
-                        if (selectedItem) {
-                          selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                        }
-                        return nextIndex;
-                      });
-                    } else if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (selectedIndex >= 0 && selectedIndex < searchResults.length) {
-                        handleView(searchResults[selectedIndex]);
                       }
-                    }
-                  }}
-                  className="w-full pr-10"
-                />
-                {searchQuery && (
-                  <button
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
-                    onClick={handleClearSearch}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+                    }}
+                    className="w-full pr-10"
+                  />
+                  {searchQuery && (
+                    <button
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                      onClick={handleClearSearch}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                {searchError && <p className="mt-2 text-red-500">{searchError}</p>}
+                {showDropdown && searchResults.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-80 overflow-y-auto search-results-dropdown">
+                    {searchResults.map((person, index) => (
+                      <PersonSearchResult 
+                        key={person.id} 
+                        person={person} 
+                        onEdit={handleEdit} 
+                        onView={handleView}
+                        isSelected={index === selectedIndex}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
-              {searchError && <p className="mt-2 text-red-500">{searchError}</p>}
-              {showDropdown && searchResults.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-80 overflow-y-auto search-results-dropdown">
-                  {searchResults.map((person, index) => (
-                    <PersonSearchResult 
-                      key={person.id} 
-                      person={person} 
-                      onEdit={handleEdit} 
-                      onView={handleView}
-                      isSelected={index === selectedIndex}
-                    />
+              <h2 className="text-xl font-bold mb-4">Filtered People</h2>
+              <Select onValueChange={handleFilterChange} defaultValue="all">
+                <SelectTrigger className="w-full mb-4">
+                  <SelectValue placeholder="Filter by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="starred">Starred</SelectItem>
+                  {availableTags.map(tag => (
+                    <SelectItem key={tag} value={tag}>{tag}</SelectItem>
                   ))}
-                </div>
-              )}
-            </div>
-            <h2 className="text-xl font-bold mb-4">Filtered People</h2>
-            <Select onValueChange={handleFilterChange} defaultValue="all">
-              <SelectTrigger className="w-full mb-4">
-                <SelectValue placeholder="Filter by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="starred">Starred</SelectItem>
-                {availableTags.map(tag => (
-                  <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="space-y-2">
-              {isInitialLoading || isFilteredLoading ? (
-                <p>Loading...</p>
-              ) : filteredPeople.length > 0 ? (
-                filteredPeople.map(person => (
-                  <div 
-                    key={person.id} 
-                    className="flex items-center justify-between bg-white p-3 rounded-lg shadow cursor-pointer hover:bg-gray-50 transition-colors"
-                    onClick={() => handleView(person)}
-                  >
-                    <div className="flex items-center">
-                      <div className="w-10 h-10 rounded-full bg-[rgb(31,41,55)] text-white flex items-center justify-center mr-3">
-                        <span className="text-xl font-semibold">{getInitials(person.name)}</span>
-                      </div>
-                      <div>
-                        <p className="font-semibold">{person.name}</p>
-                        <p className="text-sm text-gray-500">{person.city}, {person.country}</p>
-                      </div>
-                    </div>
-                    <Button
-                      variant="starButton"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleStarToggle(person.id, !person.isStarred);
-                      }}
+                </SelectContent>
+              </Select>
+              <div className="space-y-2">
+                {isInitialLoading || isFilteredLoading ? (
+                  <p>Loading...</p>
+                ) : filteredPeople.length > 0 ? (
+                  filteredPeople.map(person => (
+                    <div 
+                      key={person.id} 
+                      className="flex items-center justify-between bg-white p-3 rounded-lg shadow cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => handleView(person)}
                     >
-                      <Star className={`h-5 w-5 ${person.isStarred ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`} />
-                    </Button>
-                  </div>
-                ))
-              ) : (
-                <p>No people found.</p>
-              )}
+                      <div className="flex items-center">
+                        <div className="w-10 h-10 rounded-full bg-[rgb(31,41,55)] text-white flex items-center justify-center mr-3">
+                          <span className="text-xl font-semibold">{getInitials(person.name)}</span>
+                        </div>
+                        <div>
+                          <p className="font-semibold">{person.name}</p>
+                          <p className="text-sm text-gray-500">{person.city}, {person.country}</p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="starButton"
+                        size="icon"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStarToggle(person.id, !person.isStarred);
+                        }}
+                      >
+                        <Star className={`h-5 w-5 ${person.isStarred ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`} />
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <p>No people found.</p>
+                )}
+              </div>
             </div>
-          </div>
-          <div className="col-span-3">
-            <div className="flex justify-end mb-6">
-              <AddPerson
-                isEditing={false}
-                personData={null}
-                onClose={handleAddPersonClose}
-                onUpdate={handlePersonUpdate}
-                availableTags={availableTags}
-              />
-            </div>
-            <h2 className="text-xl font-bold mb-4">Map</h2>
-            <div className="mb-4">
-              <Input
-                type="text"
-                placeholder="Search for a location..."
-                value={mapSearchQuery}
-                onChange={(e) => setMapSearchQuery(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    handleMapSearchSubmit(mapSearchQuery);
+            <div className="col-span-3">
+              <div className="flex justify-end mb-6">
+                <AddPerson
+                  isEditing={false}
+                  personData={null}
+                  onClose={handleAddPersonClose}
+                  onUpdate={handlePersonUpdate}
+                  availableTags={availableTags}
+                />
+              </div>
+              <h2 className="text-xl font-bold mb-4">Map</h2>
+              <div className="mb-4">
+                <Input
+                  type="text"
+                  placeholder="Search for a location..."
+                  value={mapSearchQuery}
+                  onChange={(e) => setMapSearchQuery(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleMapSearchSubmit(mapSearchQuery);
+                    }
+                  }}
+                  className="w-full"
+                />
+              </div>
+              <WorldMap 
+                people={filteredPeople} 
+                onPersonClick={(personOrGroup) => {
+                  if ('people' in personOrGroup) {
+                    handleView(personOrGroup.people[0]);
+                  } else {
+                    handleView(personOrGroup);
                   }
                 }}
-                className="w-full"
+                searchQuery={submittedMapSearchQuery}
+                onSearchSubmit={handleMapSearchSubmit}
+                availableTags={availableTags}
+                newlyAddedPerson={newlyAddedPerson}
               />
             </div>
-            <WorldMap 
-              people={filteredPeople} 
-              onPersonClick={(personOrGroup) => {
-                if ('people' in personOrGroup) {
-                  handleView(personOrGroup.people[0]);
-                } else {
-                  handleView(personOrGroup);
-                }
-              }}
-              searchQuery={submittedMapSearchQuery}
-              onSearchSubmit={handleMapSearchSubmit}
-              availableTags={availableTags}
-              newlyAddedPerson={newlyAddedPerson}
-            />
           </div>
         </div>
+        {editingPerson && (
+          <AddPerson
+            isEditing={true}
+            personData={editingPerson}
+            onClose={handleCloseEdit}
+            onUpdate={handlePersonUpdate}
+            onEditClose={() => {
+              if (viewingPerson) {
+                handleView(viewingPerson);
+              }
+            }}
+            availableTags={availableTags}
+          />
+        )}
+        {viewingPerson && (
+          <ViewPerson
+            person={viewingPerson}
+            onEdit={() => handleEdit(viewingPerson)}
+            onClose={handleCloseView}
+            onStarToggle={handleStarToggle}
+            onDelete={handleDeletePerson}
+          />
+        )}
+        {toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            onClose={() => setToast(null)}
+          />
+        )}
       </div>
-      {editingPerson && (
-        <AddPerson
-          isEditing={true}
-          personData={editingPerson}
-          onClose={handleCloseEdit}
-          onUpdate={handlePersonUpdate}
-          onEditClose={() => {
-            if (viewingPerson) {
-              handleView(viewingPerson);
-            }
-          }}
-          availableTags={availableTags}
-        />
-      )}
-      {viewingPerson && (
-        <ViewPerson
-          person={viewingPerson}
-          onEdit={() => handleEdit(viewingPerson)}
-          onClose={handleCloseView}
-          onStarToggle={handleStarToggle}
-          onDelete={handleDeletePerson}
-        />
-      )}
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
-    </div>
+    </ErrorBoundary>
   );
 }

@@ -267,7 +267,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
         {...viewState}
         onMove={evt => setViewState(evt.viewState)}
         style={{width: '100%', height: 500}}
-        mapStyle={isGlobeView ? "mapbox://styles/mapbox/streets-v12" : "mapbox://styles/mapbox/light-v11"}
+        mapStyle={isGlobeView ? "mapbox://styles/mapbox/streets-v12" : "mapbox://styles/ogong500/cm0ga1n88011d01rbahb6gcve"}
         mapboxAccessToken={MAPBOX_TOKEN}
         projection={isGlobeView ? "globe" : "mercator"}
       >
