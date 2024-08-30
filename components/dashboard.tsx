@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import AddPerson from "@/components/AddPerson"
@@ -11,6 +11,7 @@ import ViewPerson from '@/components/ViewPerson';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 import { Star } from 'lucide-react';
 import { Toast } from "@/components/ui/toast"
+import WorldMap from '@/components/WorldMap';
 
 type Person = {
   id: number;
@@ -20,11 +21,12 @@ type Person = {
   visitedLocations: { id: number; location: string }[];
   tags: { id: number; tag: string }[];
   isStarred: boolean;
+  latitude: number;
+  longitude: number;
 };
 
 export function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [locationQuery, setLocationQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [editingPerson, setEditingPerson] = useState(null);
@@ -32,15 +34,17 @@ export function Dashboard() {
   const [showDropdown, setShowDropdown] = useState(false);
   const searchRef = useRef(null);
   const [viewingPerson, setViewingPerson] = useState(null);
-  const [filterType, setFilterType] = useState<'starred' | 'tags'>('starred');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [filterType, setFilterType] = useState<'all' | 'starred' | string>('all');
   const [filteredPeople, setFilteredPeople] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [isLoading, setIsLoading] = useState(false);
   const [isFilteredLoading, setIsFilteredLoading] = useState(false);
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [mapSearchQuery, setMapSearchQuery] = useState('');
+  const [submittedMapSearchQuery, setSubmittedMapSearchQuery] = useState('');
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   const getInitials = (name: string) => {
     const nameParts = name.trim().split(/\s+/);
@@ -135,15 +139,6 @@ export function Dashboard() {
     setShowDropdown(false);
   };
 
-  const handleClearLocationSearch = () => {
-    setLocationQuery('');
-  };
-
-  const handleLocationSearch = () => {
-    // TODO: Implement location search functionality
-    console.log("Searching for location:", locationQuery);
-  };
-
   const handleView = async (person: { id: number }) => {
     if (isLoading) return;
 
@@ -168,28 +163,30 @@ export function Dashboard() {
     setViewingPerson(null);
   };
 
-  const handleFilterChange = async () => {
+  const handleFilterChange = async (value: string) => {
+    setFilterType(value);
     setIsFilteredLoading(true);
     try {
       let queryParams = new URLSearchParams();
-      if (filterType === 'starred') {
+      if (value === 'starred') {
         queryParams.append('starred', 'true');
-      } else if (selectedTags.length > 0) {
-        queryParams.append('tags', selectedTags.join(','));
-      }
-      if (locationQuery) {
-        queryParams.append('location', locationQuery);
+      } else if (value !== 'all') {
+        queryParams.append('tags', value);
       }
 
       const response = await axios.get(`/api/people/filter?${queryParams.toString()}`);
       if (response.data.success) {
-        setFilteredPeople(response.data.people);
+        // Sort the filtered people alphabetically
+        const sortedPeople = response.data.people.sort((a: Person, b: Person) => a.name.localeCompare(b.name));
+        setFilteredPeople(sortedPeople);
       } else {
         throw new Error('Failed to fetch filtered people');
       }
+      return response.data; // Return the response data
     } catch (error) {
       const errorMessage = handleApiError(error, 'Failed to fetch filtered people');
-      alert(errorMessage);
+      setToast({ message: errorMessage, type: 'error' });
+      return { success: false, error: errorMessage }; // Return an error object
     } finally {
       setIsFilteredLoading(false);
     }
@@ -213,18 +210,13 @@ export function Dashboard() {
     fetchAvailableTags();
   }, []);
 
-  useEffect(() => {
-    handleFilterChange();
-  }, [filterType, selectedTags, locationQuery]);
-
-  useEffect(() => {
-    if (filterType === 'tags' && availableTags.length === 1 && selectedTags.length === 0) {
-      setSelectedTags([availableTags[0]]);
-    }
-  }, [filterType, availableTags, selectedTags]);
-
   const handlePersonUpdate = async () => {
-    await handleFilterChange();
+    const response = await handleFilterChange(filterType);
+    if (response && response.success) {
+      setFilteredPeople(prevPeople => 
+        [...prevPeople].sort((a, b) => a.name.localeCompare(b.name))
+      );
+    }
     await fetchAvailableTags();
   };
 
@@ -234,23 +226,12 @@ export function Dashboard() {
       if (response.data && response.data.success) {
         // Update filteredPeople state
         setFilteredPeople(prevPeople => {
-          let updatedPeople = prevPeople.map((p: { id: number }) =>
+          const updatedPeople = prevPeople.map(p =>
             p.id === personId ? { ...p, isStarred } : p
           );
           
-          if (filterType === 'starred') {
-            if (!isStarred) {
-              // Remove unstarred person from the list
-              updatedPeople = updatedPeople.filter((p: { id: number }) => p.id !== personId);
-            } else if (!prevPeople.some((p: { id: number }) => p.id === personId)) {
-              // Add newly starred person to the list
-              updatedPeople = [...updatedPeople, response.data.person].sort((a: { name: string }, b: { name: string }) => 
-                a.name.localeCompare(b.name)
-              );
-            }
-          }
-          
-          return updatedPeople;
+          // Always sort the list alphabetically
+          return updatedPeople.sort((a, b) => a.name.localeCompare(b.name));
         });
 
         // Update viewingPerson state if it's the same person
@@ -258,19 +239,21 @@ export function Dashboard() {
           setViewingPerson({ ...viewingPerson, isStarred });
         }
 
-        // If we're not already viewing starred people and a person was starred,
-        // we might want to fetch the updated list of starred people
-        if (isStarred && filterType !== 'starred') {
-          handleFilterChange();
+        // If we're viewing starred people and a person was unstarred, we need to remove them
+        if (filterType === 'starred' && !isStarred) {
+          setFilteredPeople(prevPeople => 
+            prevPeople.filter(p => p.id !== personId).sort((a, b) => a.name.localeCompare(b.name))
+          );
         }
 
-        setToast({ message: `Person ${isStarred ? 'starred' : 'unstarred'} successfully`, type: 'success' });
+        // If we're not viewing starred people and a person was starred, we don't need to add them
+        // They will appear when the user switches to the 'starred' filter
       } else {
         throw new Error('Failed to update star status');
       }
     } catch (error) {
       const errorMessage = handleApiError(error, 'Failed to update star status');
-      alert(errorMessage);
+      console.error(errorMessage);
     }
   };
 
@@ -294,6 +277,35 @@ export function Dashboard() {
     setIsAddPersonOpen(false);
   };
 
+  const handleMapSearchSubmit = (query: string) => {
+    setSubmittedMapSearchQuery(query);
+  };
+
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        setIsInitialLoading(true);
+        const response = await axios.get('/api/people/filter');
+        if (response.data.success) {
+          // Sort the initial data alphabetically
+          const sortedPeople = response.data.people.sort((a: Person, b: Person) => 
+            a.name.localeCompare(b.name)
+          );
+          setFilteredPeople(sortedPeople);
+        } else {
+          throw new Error('Failed to fetch initial people data');
+        }
+      } catch (error) {
+        const errorMessage = handleApiError(error, 'Failed to load initial data');
+        setToast({ message: errorMessage, type: 'error' });
+      } finally {
+        setIsInitialLoading(false);
+      }
+    };
+
+    loadInitialData();
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="bg-gray-800 text-white py-4">
@@ -302,173 +314,109 @@ export function Dashboard() {
         </div>
       </header>
       <div className="container mx-auto py-6 px-4">
-        <div className="flex items-center mb-6 gap-4">
-          <div className="w-1/4 relative" ref={searchRef}>
-            <div className="relative">
-              <Input
-                type="text"
-                placeholder="Search people..."
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setShowDropdown(true);
-                  setSelectedIndex(-1);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    setSelectedIndex((prevIndex) => {
-                      const nextIndex = prevIndex < searchResults.length - 1 ? prevIndex + 1 : prevIndex;
-                      const dropdown = document.querySelector('.search-results-dropdown');
-                      const selectedItem = dropdown?.children[nextIndex] as HTMLElement;
-                      if (selectedItem) {
-                        selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                      }
-                      return nextIndex;
-                    });
-                  } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    setSelectedIndex((prevIndex) => {
-                      const nextIndex = prevIndex > 0 ? prevIndex - 1 : -1;
-                      const dropdown = document.querySelector('.search-results-dropdown');
-                      const selectedItem = dropdown?.children[nextIndex] as HTMLElement;
-                      if (selectedItem) {
-                        selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                      }
-                      return nextIndex;
-                    });
-                  } else if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (selectedIndex >= 0 && selectedIndex < searchResults.length) {
-                      handleView(searchResults[selectedIndex]);
-                    }
-                  }
-                }}
-                className="w-full pr-10"
-              />
-              {searchQuery && (
-                <button
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
-                  onClick={handleClearSearch}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-            {searchError && <p className="mt-2 text-red-500">{searchError}</p>}
-            {showDropdown && searchResults.length > 0 && (
-              <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-80 overflow-y-auto search-results-dropdown">
-                {searchResults.map((person, index) => (
-                  <PersonSearchResult 
-                    key={person.id} 
-                    person={person} 
-                    onEdit={handleEdit} 
-                    onView={handleView}
-                    isSelected={index === selectedIndex}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="w-1/4 relative">
-            <div className="relative">
-              <Input
-                type="text"
-                placeholder="Search location..."
-                value={locationQuery}
-                onChange={(e) => setLocationQuery(e.target.value)}
-                className="w-full pr-10"
-              />
-              {locationQuery && (
-                <button
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
-                  onClick={handleClearLocationSearch}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-          </div>
-          <Button onClick={handleLocationSearch} className="ml-2">Search</Button>
-          <div className="flex-grow flex justify-end">
-            <AddPerson
-              isEditing={false}
-              personData={null}
-              onClose={handleAddPersonClose}
-              onUpdate={handlePersonUpdate}
-              availableTags={availableTags}
-            />
-          </div>
-        </div>
-        
         <div className="grid grid-cols-4 gap-6">
           <div className="col-span-1">
-            <h2 className="text-xl font-bold mb-4">Filtered People</h2>
-            <div className="mb-4">
-              <Select
-                value={filterType}
-                onValueChange={(value: 'starred' | 'tags') => setFilterType(value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select filter type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="starred">Starred</SelectItem>
-                  <SelectItem value="tags">Tags</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {filterType === 'tags' && (
-              <div className="mb-4">
-                <Select
-                  multiple
-                  value={selectedTags}
-                  onValueChange={(value) => {
-                    setSelectedTags(Array.isArray(value) ? value : [value]);
+            <div className="mb-6" ref={searchRef}>
+              <div className="relative">
+                <Input
+                  type="text"
+                  placeholder="Search people..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setShowDropdown(true);
+                    setSelectedIndex(-1);
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select tags">
-                      {selectedTags.length > 0 ? selectedTags.join(', ') : 'Select tags'}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableTags.map((tag) => (
-                      <SelectItem key={tag} value={tag}>{tag}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setSelectedIndex((prevIndex) => {
+                        const nextIndex = prevIndex < searchResults.length - 1 ? prevIndex + 1 : prevIndex;
+                        const dropdown = document.querySelector('.search-results-dropdown');
+                        const selectedItem = dropdown?.children[nextIndex] as HTMLElement;
+                        if (selectedItem) {
+                          selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                        return nextIndex;
+                      });
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setSelectedIndex((prevIndex) => {
+                        const nextIndex = prevIndex > 0 ? prevIndex - 1 : -1;
+                        const dropdown = document.querySelector('.search-results-dropdown');
+                        const selectedItem = dropdown?.children[nextIndex] as HTMLElement;
+                        if (selectedItem) {
+                          selectedItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                        return nextIndex;
+                      });
+                    } else if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (selectedIndex >= 0 && selectedIndex < searchResults.length) {
+                        handleView(searchResults[selectedIndex]);
+                      }
+                    }
+                  }}
+                  className="w-full pr-10"
+                />
+                {searchQuery && (
+                  <button
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                    onClick={handleClearSearch}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
-            )}
-            <div className="space-y-2">
-              {isFilteredLoading ? (
-                <div className="flex justify-center items-center h-20">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              {searchError && <p className="mt-2 text-red-500">{searchError}</p>}
+              {showDropdown && searchResults.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-80 overflow-y-auto search-results-dropdown">
+                  {searchResults.map((person, index) => (
+                    <PersonSearchResult 
+                      key={person.id} 
+                      person={person} 
+                      onEdit={handleEdit} 
+                      onView={handleView}
+                      isSelected={index === selectedIndex}
+                    />
+                  ))}
                 </div>
-              ) : filterType === 'tags' && availableTags.length === 0 ? (
-                <p>No tags available.</p>
-              ) : filterType === 'tags' && availableTags.length === 1 && selectedTags.length === 0 ? (
-                <p>Showing people for the only available tag: {availableTags[0]}</p>
-              ) : filterType === 'tags' && selectedTags.length === 0 ? (
-                <p>Please select a tag to view people.</p>
+              )}
+            </div>
+            <h2 className="text-xl font-bold mb-4">Filtered People</h2>
+            <Select onValueChange={handleFilterChange} defaultValue="all">
+              <SelectTrigger className="w-full mb-4">
+                <SelectValue placeholder="Filter by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="starred">Starred</SelectItem>
+                {availableTags.map(tag => (
+                  <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="space-y-2">
+              {isInitialLoading || isFilteredLoading ? (
+                <p>Loading...</p>
               ) : filteredPeople.length > 0 ? (
-                filteredPeople.map((person: Person) => (
-                  <div
-                    key={person.id}
-                    className="flex items-center justify-between p-2 hover:bg-gray-100 cursor-pointer"
+                filteredPeople.map(person => (
+                  <div 
+                    key={person.id} 
+                    className="flex items-center justify-between bg-white p-3 rounded-lg shadow cursor-pointer hover:bg-gray-50 transition-colors"
                     onClick={() => handleView(person)}
                   >
                     <div className="flex items-center">
-                      <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center mr-3">
-                        <span className="text-sm font-semibold">{getInitials(person.name)}</span>
+                      <div className="w-10 h-10 rounded-full bg-[rgb(31,41,55)] text-white flex items-center justify-center mr-3">
+                        <span className="text-xl font-semibold">{getInitials(person.name)}</span>
                       </div>
                       <div>
                         <p className="font-semibold">{person.name}</p>
-                        <p className="text-sm text-gray-500">{[person.city, person.country].filter(Boolean).join(', ')}</p>
+                        <p className="text-sm text-gray-500">{person.city}, {person.country}</p>
                       </div>
                     </div>
                     <Button
-                      variant="ghost"
+                      variant="starButton"
                       size="icon"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -485,10 +433,42 @@ export function Dashboard() {
             </div>
           </div>
           <div className="col-span-3">
-            <h2 className="text-xl font-bold mb-4">Map</h2>
-            <div className="bg-gray-200 h-[500px] flex items-center justify-center">
-              <p>Map placeholder - Mapbox integration coming soon</p>
+            <div className="flex justify-end mb-6">
+              <AddPerson
+                isEditing={false}
+                personData={null}
+                onClose={handleAddPersonClose}
+                onUpdate={handlePersonUpdate}
+                availableTags={availableTags}
+              />
             </div>
+            <h2 className="text-xl font-bold mb-4">Map</h2>
+            <div className="mb-4">
+              <Input
+                type="text"
+                placeholder="Search for a location..."
+                value={mapSearchQuery}
+                onChange={(e) => setMapSearchQuery(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleMapSearchSubmit(mapSearchQuery);
+                  }
+                }}
+                className="w-full"
+              />
+            </div>
+            <WorldMap 
+              people={filteredPeople} 
+              onPersonClick={(personOrGroup) => {
+                if ('people' in personOrGroup) {
+                  handleView(personOrGroup.people[0]);
+                } else {
+                  handleView(personOrGroup);
+                }
+              }}
+              searchQuery={submittedMapSearchQuery}
+              onSearchSubmit={handleMapSearchSubmit}
+            />
           </div>
         </div>
       </div>
