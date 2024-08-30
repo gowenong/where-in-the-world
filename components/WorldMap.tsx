@@ -3,6 +3,7 @@ import Map, { Marker, Popup, NavigationControl } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import axios from 'axios';
 import { WebMercatorViewport } from '@math.gl/web-mercator';
+import CityInfoCard from '@/components/CityInfoCard';
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
 
@@ -32,6 +33,8 @@ type WorldMapProps = {
   onPersonClick: (person: Person) => void;
   searchQuery: string;
   onSearchSubmit: (query: string) => void;
+  availableTags: string[];
+  newlyAddedPerson: Person | null;
 };
 
 const CityMarker: React.FC<{ group: CityGroup; onClick: () => void }> = ({ group, onClick }) => (
@@ -43,7 +46,7 @@ const CityMarker: React.FC<{ group: CityGroup; onClick: () => void }> = ({ group
   </div>
 );
 
-const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery, onSearchSubmit }) => {
+const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery, onSearchSubmit, availableTags, newlyAddedPerson }) => {
   const [viewState, setViewState] = useState({
     latitude: 0,
     longitude: 0,
@@ -54,6 +57,8 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
   const [popupInfo, setPopupInfo] = useState<GeocodedPerson | CityGroup | null>(null);
   const [isGlobeView, setIsGlobeView] = useState(false);
   const [searchedLocation, setSearchedLocation] = useState<[number, number] | null>(null);
+  const [selectedCity, setSelectedCity] = useState<CityGroup | null>(null);
+  const [showCityInfo, setShowCityInfo] = useState(false);
 
   const geocodePeople = useCallback(async () => {
     const geocoded = await Promise.all(
@@ -209,13 +214,60 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
     );
   };
 
+  useEffect(() => {
+    if (newlyAddedPerson) {
+      geocodePeople();
+      // Update the cityGroups state
+      setCityGroups(prevGroups => {
+        const updatedGroups = [...prevGroups];
+        const groupIndex = updatedGroups.findIndex(g => g.city === newlyAddedPerson.city && g.country === newlyAddedPerson.country);
+        if (groupIndex !== -1) {
+          const existingPerson = updatedGroups[groupIndex].people.find(p => p.id === newlyAddedPerson.id);
+          if (existingPerson) {
+            Object.assign(existingPerson, newlyAddedPerson);
+          } else {
+            updatedGroups[groupIndex].people.push(newlyAddedPerson as GeocodedPerson);
+          }
+        } else {
+          // If the city doesn't exist, create a new group
+          updatedGroups.push({
+            city: newlyAddedPerson.city,
+            country: newlyAddedPerson.country,
+            latitude: newlyAddedPerson.latitude || 0,
+            longitude: newlyAddedPerson.longitude || 0,
+            people: [newlyAddedPerson as GeocodedPerson]
+          });
+        }
+        return updatedGroups;
+      });
+    }
+  }, [newlyAddedPerson]);
+
+  const handleUpdateResidents = useCallback((updatedResidents: Person[]) => {
+    if (selectedCity) {
+      setCityGroups(prevGroups => {
+        return prevGroups.map(group => {
+          if (group.city === selectedCity.city && group.country === selectedCity.country) {
+            return { ...group, people: updatedResidents as GeocodedPerson[] };
+          }
+          return group;
+        });
+      });
+    }
+  }, [selectedCity]);
+
+  const handleUpdateVisitors = useCallback((updatedVisitors: Person[]) => {
+    // This function might not be necessary for the WorldMap component,
+    // but we'll keep it for consistency with the CityInfoCard props
+  }, []);
+
   return (
     <div className="relative">
       <Map
         {...viewState}
         onMove={evt => setViewState(evt.viewState)}
         style={{width: '100%', height: 500}}
-        mapStyle={isGlobeView ? "mapbox://styles/mapbox/satellite-v9" : "mapbox://styles/mapbox/light-v11"}
+        mapStyle={isGlobeView ? "mapbox://styles/mapbox/streets-v12" : "mapbox://styles/mapbox/light-v11"}
         mapboxAccessToken={MAPBOX_TOKEN}
         projection={isGlobeView ? "globe" : "mercator"}
       >
@@ -228,7 +280,10 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
                 longitude={group.longitude}
                 anchor="center"
               >
-                <CityMarker group={group} onClick={() => setPopupInfo(group)} />
+                <CityMarker group={group} onClick={() => {
+                  setSelectedCity(group);
+                  setShowCityInfo(true);
+                }} />
               </Marker>
             ))
           : geocodedPeople.map(person => (
@@ -239,7 +294,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
                 anchor="bottom"
                 onClick={e => {
                   e.originalEvent.stopPropagation();
-                  setPopupInfo(person);
+                  onPersonClick(person);
                 }}
               >
                 <div className="w-6 h-6 bg-blue-500 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white text-xs font-bold cursor-pointer hover:bg-blue-600 transition-colors">
@@ -248,36 +303,6 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
               </Marker>
             ))
         }
-
-        {popupInfo && (
-          <Popup
-            anchor="top"
-            latitude={'people' in popupInfo ? popupInfo.latitude : popupInfo.latitude}
-            longitude={'people' in popupInfo ? popupInfo.longitude : popupInfo.longitude}
-            onClose={() => setPopupInfo(null)}
-            closeButton={false}
-            closeOnClick={false}
-            offsetTop={12}
-          >
-            <div className="bg-white p-3 rounded-lg shadow-md">
-              <h3 className="font-bold text-lg mb-1">
-                {'people' in popupInfo ? popupInfo.city : popupInfo.name}
-              </h3>
-              <p className="text-sm text-gray-600 mb-2">
-                {'people' in popupInfo 
-                  ? `${popupInfo.people.length} people`
-                  : `${popupInfo.city}, ${popupInfo.country}`
-                }
-              </p>
-              <button 
-                onClick={() => onPersonClick('people' in popupInfo ? popupInfo.people[0] : popupInfo)}
-                className="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600 transition-colors"
-              >
-                View Details
-              </button>
-            </div>
-          </Popup>
-        )}
       </Map>
       <button
         onClick={toggleMapView}
@@ -285,8 +310,25 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
       >
         {isGlobeView ? "Switch to Flat Map" : "Switch to Globe View"}
       </button>
-      {searchedLocation && viewState.zoom >= 8 && popupInfo && (
-        <LocationInfo info={popupInfo} />
+      {showCityInfo && selectedCity && (
+        <CityInfoCard
+          city={selectedCity.city}
+          country={selectedCity.country}
+          residents={selectedCity.people}
+          visitors={people.filter(p => 
+            p.visitedLocations.some(vl => vl.location === selectedCity.city) && 
+            !selectedCity.people.some(r => r.id === p.id)
+          )}
+          onPersonClick={onPersonClick}
+          onClose={() => setShowCityInfo(false)}
+          onUpdate={() => {
+            geocodePeople();
+          }}
+          onUpdateResidents={handleUpdateResidents}
+          onUpdateVisitors={handleUpdateVisitors}
+          availableTags={availableTags}
+          newlyAddedPerson={newlyAddedPerson}
+        />
       )}
     </div>
   );

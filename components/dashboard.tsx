@@ -45,6 +45,7 @@ export function Dashboard() {
   const [submittedMapSearchQuery, setSubmittedMapSearchQuery] = useState('');
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [newlyAddedPerson, setNewlyAddedPerson] = useState<Person | null>(null);
 
   const getInitials = (name: string) => {
     const nameParts = name.trim().split(/\s+/);
@@ -210,14 +211,33 @@ export function Dashboard() {
     fetchAvailableTags();
   }, []);
 
-  const handlePersonUpdate = async () => {
-    const response = await handleFilterChange(filterType);
-    if (response && response.success) {
-      setFilteredPeople(prevPeople => 
-        [...prevPeople].sort((a, b) => a.name.localeCompare(b.name))
-      );
+  const handlePersonUpdate = async (updatedPerson: Person) => {
+    try {
+      setIsFilteredLoading(true);
+      const response = await axios.get('/api/people/filter');
+      if (response.data.success) {
+        const sortedPeople = response.data.people.sort((a: Person, b: Person) => 
+          a.name.localeCompare(b.name)
+        );
+        setFilteredPeople(sortedPeople);
+        setNewlyAddedPerson(updatedPerson);
+        
+        // Refresh available tags
+        await fetchAvailableTags();
+        
+        // If the filter is set to a specific tag, and the new person has that tag, refresh the filter
+        if (filterType !== 'all' && filterType !== 'starred' && updatedPerson.tags.some(tag => tag.tag === filterType)) {
+          await handleFilterChange(filterType);
+        }
+      } else {
+        throw new Error('Failed to fetch updated people data');
+      }
+    } catch (error) {
+      const errorMessage = handleApiError(error, 'Failed to update people data');
+      setToast({ message: errorMessage, type: 'error' });
+    } finally {
+      setIsFilteredLoading(false);
     }
-    await fetchAvailableTags();
   };
 
   const handleStarToggle = async (personId: number, isStarred: boolean) => {
@@ -468,6 +488,8 @@ export function Dashboard() {
               }}
               searchQuery={submittedMapSearchQuery}
               onSearchSubmit={handleMapSearchSubmit}
+              availableTags={availableTags}
+              newlyAddedPerson={newlyAddedPerson}
             />
           </div>
         </div>

@@ -25,7 +25,25 @@ type Person = {
   isStarred: boolean;
 };
 
-export default function AddPerson({ isEditing = false, personData = null as Person | null, onClose = () => {}, onUpdate = () => {}, availableTags = [] }) {
+interface AddPersonProps {
+  isEditing: boolean;
+  personData: {
+    id?: number;
+    name?: string;
+    country?: string;
+    city?: string;
+    visitedLocations?: { id: number; location: string }[];
+    tags?: { id: number; tag: string }[];
+    isStarred?: boolean;
+  } | null;
+  onClose: () => void;
+  onUpdate: (newPerson: Person) => void;
+  onEditClose?: () => void;
+  availableTags: string[];
+  trigger?: React.ReactNode;
+}
+
+const AddPerson: React.FC<AddPersonProps> = ({ isEditing, personData, onClose, onUpdate, onEditClose, availableTags, trigger }) => {
   const [name, setName] = useState(personData?.name || '');
   const [countries, setCountries] = useState<string[]>([]);
   const [country, setCountry] = useState(personData?.country || '');
@@ -39,7 +57,7 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
     personData?.visitedLocations || []
   );
   const [newLocation, setNewLocation] = useState('');
-  const [tags, setTags] = useState<string[]>(personData?.tags.map(tag => tag.tag) || []);
+  const [tags, setTags] = useState<string[]>(personData?.tags?.map(tag => tag.tag) || []);
   const [newTag, setNewTag] = useState('');
   const [isStarred, setIsStarred] = useState(personData?.isStarred || false);
   const [initials, setInitials] = useState('');
@@ -262,12 +280,7 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
       });
 
       if (response.data && response.data.success) {
-        // Update available tags in the parent component
-        const newTags = tags.filter(tag => !availableTags.includes(tag));
-        if (newTags.length > 0) {
-          setInternalTags([...internalTags, ...newTags]);
-        }
-        onUpdate();
+        onUpdate(response.data.person);
         resetForm();
         setIsDialogOpen(false);
         onClose();
@@ -319,11 +332,13 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
         onClose();
       }
     }}>
-      {!isEditing && (
-        <DialogTrigger asChild>
-          <Button className="bg-green-500 hover:bg-green-600 text-white" onClick={() => setIsDialogOpen(true)}>Add Person</Button>
-        </DialogTrigger>
-      )}
+      <DialogTrigger asChild>
+        {trigger || (
+          <Button className="bg-green-500 hover:bg-green-600 text-white" onClick={() => setIsDialogOpen(true)}>
+            Add Person
+          </Button>
+        )}
+      </DialogTrigger>
       <DialogContent className="w-[90vw] max-w-[400px] sm:max-w-[500px] md:max-w-[600px] lg:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <Card className="w-full border-0 shadow-none">
           <CardHeader className="relative">
@@ -488,4 +503,6 @@ export default function AddPerson({ isEditing = false, personData = null as Pers
       )}
     </Dialog>
   );
-}
+};
+
+export default AddPerson;
