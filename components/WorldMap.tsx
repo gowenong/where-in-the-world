@@ -59,6 +59,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
   const [searchedLocation, setSearchedLocation] = useState<[number, number] | null>(null);
   const [selectedCity, setSelectedCity] = useState<CityGroup | null>(null);
   const [showCityInfo, setShowCityInfo] = useState(false);
+  const [searchedCity, setSearchedCity] = useState<CityGroup | null>(null);
 
   const geocodePeople = useCallback(async () => {
     const geocoded = await Promise.all(
@@ -174,11 +175,25 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
             zoom,
           }));
         }
+
+        // Find the city group that matches the searched location
+        const matchingCityGroup = cityGroups.find(group => 
+          group.city.toLowerCase() === feature.text.toLowerCase() &&
+          group.country.toLowerCase() === feature.context.find((ctx: any) => ctx.id.startsWith('country.')).text.toLowerCase()
+        );
+
+        if (matchingCityGroup) {
+          setSearchedCity(matchingCityGroup);
+          setSelectedCity(null);
+          setShowCityInfo(false);
+        } else {
+          setSearchedCity(null);
+        }
       }
     } catch (error) {
       console.error('Error searching location:', error);
     }
-  }, []);
+  }, [cityGroups]);
 
   useEffect(() => {
     if (searchQuery) {
@@ -261,31 +276,84 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
     // but we'll keep it for consistency with the CityInfoCard props
   }, []);
 
+  const handlePersonUpdate = useCallback((updatedPerson: Person) => {
+    setCityGroups(prevGroups => {
+      const updatedGroups = prevGroups.map(group => {
+        if (group.city === updatedPerson.city && group.country === updatedPerson.country) {
+          return {
+            ...group,
+            people: [...group.people.filter(p => p.id !== updatedPerson.id), updatedPerson as GeocodedPerson]
+          };
+        } else {
+          return {
+            ...group,
+            people: group.people.filter(p => p.id !== updatedPerson.id)
+          };
+        }
+      });
+
+      // If the person moved to a new city that doesn't exist in the groups, create a new group
+      if (!updatedGroups.some(group => group.city === updatedPerson.city && group.country === updatedPerson.country)) {
+        updatedGroups.push({
+          city: updatedPerson.city,
+          country: updatedPerson.country,
+          latitude: (updatedPerson as GeocodedPerson).latitude || 0,
+          longitude: (updatedPerson as GeocodedPerson).longitude || 0,
+          people: [updatedPerson as GeocodedPerson]
+        });
+      }
+
+      return updatedGroups;
+    });
+
+    // Force re-render of CityInfoCard
+    setSelectedCity(prev => {
+      if (prev && (prev.city !== updatedPerson.city || prev.country !== updatedPerson.country)) {
+        // Person moved to a different city, close the current CityInfoCard
+        setShowCityInfo(false);
+        return null;
+      } else if (prev) {
+        // Update the selected city if it's the one being edited
+        return {
+          ...prev,
+          people: prev.people.map(p => p.id === updatedPerson.id ? updatedPerson as GeocodedPerson : p)
+            .filter(p => p.city === prev.city && p.country === prev.country)
+        };
+      }
+      return prev;
+    });
+
+    // Trigger a re-geocoding of people
+    geocodePeople();
+  }, []);
+
   const memoizedCityInfoCard = useMemo(() => {
     if (showCityInfo && selectedCity) {
+      const cityVisitors = people.filter(p => 
+        p.visitedLocations.some(vl => vl.location === selectedCity.city) && 
+        !selectedCity.people.some(r => r.id === p.id)
+      );
+
       return (
         <CityInfoCard
+          key={`${selectedCity.city}-${selectedCity.country}-${selectedCity.people.length}-${cityVisitors.length}`}
           city={selectedCity.city}
           country={selectedCity.country}
           residents={selectedCity.people}
-          visitors={people.filter(p => 
-            p.visitedLocations.some(vl => vl.location === selectedCity.city) && 
-            !selectedCity.people.some(r => r.id === p.id)
-          )}
+          visitors={cityVisitors}
           onPersonClick={onPersonClick}
           onClose={() => setShowCityInfo(false)}
-          onUpdate={() => {
-            geocodePeople();
-          }}
+          onUpdate={geocodePeople}
           onUpdateResidents={handleUpdateResidents}
           onUpdateVisitors={handleUpdateVisitors}
           availableTags={availableTags}
           newlyAddedPerson={newlyAddedPerson}
+          onPersonUpdate={handlePersonUpdate}
         />
       );
     }
     return null;
-  }, [showCityInfo, selectedCity, people, onPersonClick, geocodePeople, handleUpdateResidents, handleUpdateVisitors, availableTags, newlyAddedPerson]);
+  }, [showCityInfo, selectedCity, people, onPersonClick, geocodePeople, handleUpdateResidents, handleUpdateVisitors, availableTags, newlyAddedPerson, handlePersonUpdate]);
 
   return (
     <div className="relative">
@@ -298,37 +366,20 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
         projection={isGlobeView ? "globe" : "mercator"}
       >
         <NavigationControl position="top-right" />
-        {viewState.zoom < 5
-          ? cityGroups.map(group => (
-              <Marker
-                key={`${group.city},${group.country}`}
-                latitude={group.latitude}
-                longitude={group.longitude}
-                anchor="center"
-              >
-                <CityMarker group={group} onClick={() => {
-                  setSelectedCity(group);
-                  setShowCityInfo(true);
-                }} />
-              </Marker>
-            ))
-          : geocodedPeople.map(person => (
-              <Marker
-                key={person.id}
-                latitude={person.latitude}
-                longitude={person.longitude}
-                anchor="bottom"
-                onClick={e => {
-                  e.originalEvent.stopPropagation();
-                  onPersonClick(person);
-                }}
-              >
-                <div className="w-6 h-6 bg-blue-500 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white text-xs font-bold cursor-pointer hover:bg-blue-600 transition-colors">
-                  {person.name.charAt(0)}
-                </div>
-              </Marker>
-            ))
-        }
+        {cityGroups.map(group => (
+          <Marker
+            key={`${group.city},${group.country}`}
+            latitude={group.latitude}
+            longitude={group.longitude}
+            anchor="center"
+          >
+            <CityMarker group={group} onClick={() => {
+              setSelectedCity(group);
+              setShowCityInfo(true);
+              setSearchedCity(null);
+            }} />
+          </Marker>
+        ))}
       </Map>
       <button
         onClick={toggleMapView}
@@ -337,6 +388,25 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
         {isGlobeView ? "Switch to Flat Map" : "Switch to Globe View"}
       </button>
       {memoizedCityInfoCard}
+      {searchedCity && (
+        <CityInfoCard
+          city={searchedCity.city}
+          country={searchedCity.country}
+          residents={searchedCity.people}
+          visitors={people.filter(p => 
+            p.visitedLocations.some(vl => vl.location === searchedCity.city) && 
+            !searchedCity.people.some(r => r.id === p.id)
+          )}
+          onPersonClick={onPersonClick}
+          onClose={() => setSearchedCity(null)}
+          onUpdate={geocodePeople}
+          onUpdateResidents={handleUpdateResidents}
+          onUpdateVisitors={handleUpdateVisitors}
+          availableTags={availableTags}
+          newlyAddedPerson={newlyAddedPerson}
+          onPersonUpdate={handlePersonUpdate}
+        />
+      )}
     </div>
   );
 };

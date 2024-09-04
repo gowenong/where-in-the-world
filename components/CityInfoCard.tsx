@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import AddPerson from '@/components/AddPerson';
@@ -24,6 +24,7 @@ type CityInfoCardProps = {
   onUpdateVisitors: (updatedVisitors: Person[]) => void;
   availableTags: string[];
   newlyAddedPerson: Person | null;
+  onPersonUpdate: (updatedPerson: Person) => void;
 };
 
 const CityInfoCard: React.FC<CityInfoCardProps> = ({
@@ -37,31 +38,43 @@ const CityInfoCard: React.FC<CityInfoCardProps> = ({
   onUpdateResidents,
   onUpdateVisitors,
   availableTags,
-  newlyAddedPerson
+  newlyAddedPerson,
+  onPersonUpdate
 }) => {
+  const prevNewlyAddedPersonRef = useRef<Person | null>(null);
+
   const updatePeople = useCallback(() => {
-    if (newlyAddedPerson && (newlyAddedPerson.city === city && newlyAddedPerson.country === country)) {
-      const updatedResidents = residents.map(r => {
-        if (r.id === newlyAddedPerson.id) {
-          return { ...r, ...newlyAddedPerson };
-        }
-        return r;
-      });
-      if (!updatedResidents.some(r => r.id === newlyAddedPerson.id)) {
-        updatedResidents.push(newlyAddedPerson);
-      }
-      onUpdateResidents(updatedResidents);
+    if (newlyAddedPerson && 
+        newlyAddedPerson !== prevNewlyAddedPersonRef.current &&
+        newlyAddedPerson.city === city && 
+        newlyAddedPerson.country === country) {
+      
+      const updatedResidents = residents.some(r => r.id === newlyAddedPerson.id)
+        ? residents.map(r => r.id === newlyAddedPerson.id ? { ...r, ...newlyAddedPerson } : r)
+        : [...residents, newlyAddedPerson];
 
       const updatedVisitors = visitors.filter(v => v.id !== newlyAddedPerson.id);
-      onUpdateVisitors(updatedVisitors);
 
+      onUpdateResidents(updatedResidents);
+      onUpdateVisitors(updatedVisitors);
       onUpdate();
+
+      prevNewlyAddedPersonRef.current = newlyAddedPerson;
     }
   }, [newlyAddedPerson, city, country, residents, visitors, onUpdateResidents, onUpdateVisitors, onUpdate]);
 
   useEffect(() => {
     updatePeople();
   }, [updatePeople]);
+
+  const handlePersonEdit = (updatedPerson: Person) => {
+    if (updatedPerson.city === city && updatedPerson.country === country) {
+      onUpdateResidents(residents.map(r => r.id === updatedPerson.id ? updatedPerson : r));
+    } else {
+      onUpdateResidents(residents.filter(r => r.id !== updatedPerson.id));
+    }
+    onPersonUpdate(updatedPerson);
+  };
 
   return (
     <Card className="w-64 absolute top-16 left-4 z-10">
@@ -94,7 +107,12 @@ const CityInfoCard: React.FC<CityInfoCardProps> = ({
           isEditing={false}
           personData={{ country, city }}
           onClose={() => {}}
-          onUpdate={onUpdate}
+          onUpdate={(updatedPerson) => {
+            if (updatedPerson) {
+              handlePersonEdit(updatedPerson);
+            }
+            onUpdate();
+          }}
           availableTags={availableTags}
           trigger={
             <Button size="icon" className="h-8 w-8 rounded-full">
@@ -107,4 +125,4 @@ const CityInfoCard: React.FC<CityInfoCardProps> = ({
   );
 };
 
-export default CityInfoCard;
+export default React.memo(CityInfoCard);
