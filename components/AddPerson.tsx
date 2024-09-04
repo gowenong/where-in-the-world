@@ -187,20 +187,26 @@ const AddPerson: React.FC<AddPersonProps> = ({ isEditing, personData, onClose, o
   }, []);
 
   useEffect(() => {
-    fetchCountries('');
     if (isEditing && personData) {
-      setName(personData.name);
+      setName(personData.name || '');
       setCountry(personData.country || '');
       setCitySearch(personData.city || '');
       setSelectedCity(personData.city || '');
-      setVisitedLocations(personData.visitedLocations);
-      setTags(personData.tags.map(tag => tag.tag));
-      setIsStarred(personData.isStarred);
-      if (personData.country) {
-        fetchCitiesForCountry(personData.country);
-      }
+      setVisitedLocations(personData.visitedLocations || []);
+      setTags(personData.tags?.map(tag => tag.tag) || []);
+      setIsStarred(personData.isStarred || false);
     }
-  }, [fetchCountries, isEditing, personData, fetchCitiesForCountry]);
+  }, [isEditing, personData]);
+
+  useEffect(() => {
+    fetchCountries('');
+  }, []);
+
+  useEffect(() => {
+    if (isEditing && personData && personData.country) {
+      fetchCitiesForCountry(personData.country);
+    }
+  }, [isEditing, personData]);
 
   const handleCountryChange = (selectedCountry: string) => {
     console.log('Country changed to:', selectedCountry);
@@ -285,7 +291,6 @@ const AddPerson: React.FC<AddPersonProps> = ({ isEditing, personData, onClose, o
 
       if (response.data && response.data.success) {
         onUpdate(response.data.person);
-        resetForm();
         setIsDialogOpen(false);
         onClose();
         setToast({ message: `Person ${isEditing ? 'updated' : 'added'} successfully`, type: 'success' });
@@ -299,21 +304,17 @@ const AddPerson: React.FC<AddPersonProps> = ({ isEditing, personData, onClose, o
     }
   };
 
-  const resetForm = () => {
-    setName('');
-    setCountry('');
-    setSelectedCity('');
-    setCitySearch('');
-    setVisitedLocations([]);
-    setTags([]);
-    setNewTag('');
-    setIsStarred(false);
-    setInitials('');
-  };
-
   useEffect(() => {
     if (!isEditing && !personData) {
-      resetForm();
+      setName('');
+      setCountry('');
+      setSelectedCity('');
+      setCitySearch('');
+      setVisitedLocations([]);
+      setTags([]);
+      setNewTag('');
+      setIsStarred(false);
+      setInitials('');
     }
   }, [isDialogOpen, isEditing, personData]);
 
@@ -332,7 +333,6 @@ const AddPerson: React.FC<AddPersonProps> = ({ isEditing, personData, onClose, o
     <Dialog open={isDialogOpen} onOpenChange={(open) => {
       setIsDialogOpen(open);
       if (!open) {
-        resetForm();
         onClose();
       }
     }}>

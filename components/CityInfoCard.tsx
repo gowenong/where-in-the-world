@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import AddPerson from '@/components/AddPerson';
@@ -39,7 +39,7 @@ const CityInfoCard: React.FC<CityInfoCardProps> = ({
   availableTags,
   newlyAddedPerson
 }) => {
-  useEffect(() => {
+  const updatePeople = useCallback(() => {
     if (newlyAddedPerson && (newlyAddedPerson.city === city && newlyAddedPerson.country === country)) {
       const updatedResidents = residents.map(r => {
         if (r.id === newlyAddedPerson.id) {
@@ -52,17 +52,16 @@ const CityInfoCard: React.FC<CityInfoCardProps> = ({
       }
       onUpdateResidents(updatedResidents);
 
-      const updatedVisitors = visitors.map(v => {
-        if (v.id === newlyAddedPerson.id) {
-          return { ...v, ...newlyAddedPerson };
-        }
-        return v;
-      });
+      const updatedVisitors = visitors.filter(v => v.id !== newlyAddedPerson.id);
       onUpdateVisitors(updatedVisitors);
 
       onUpdate();
     }
   }, [newlyAddedPerson, city, country, residents, visitors, onUpdateResidents, onUpdateVisitors, onUpdate]);
+
+  useEffect(() => {
+    updatePeople();
+  }, [updatePeople]);
 
   return (
     <Card className="w-64 absolute top-16 left-4 z-10">

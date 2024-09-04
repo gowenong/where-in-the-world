@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Map, { Marker, Popup, NavigationControl } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import axios from 'axios';
@@ -261,6 +261,32 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
     // but we'll keep it for consistency with the CityInfoCard props
   }, []);
 
+  const memoizedCityInfoCard = useMemo(() => {
+    if (showCityInfo && selectedCity) {
+      return (
+        <CityInfoCard
+          city={selectedCity.city}
+          country={selectedCity.country}
+          residents={selectedCity.people}
+          visitors={people.filter(p => 
+            p.visitedLocations.some(vl => vl.location === selectedCity.city) && 
+            !selectedCity.people.some(r => r.id === p.id)
+          )}
+          onPersonClick={onPersonClick}
+          onClose={() => setShowCityInfo(false)}
+          onUpdate={() => {
+            geocodePeople();
+          }}
+          onUpdateResidents={handleUpdateResidents}
+          onUpdateVisitors={handleUpdateVisitors}
+          availableTags={availableTags}
+          newlyAddedPerson={newlyAddedPerson}
+        />
+      );
+    }
+    return null;
+  }, [showCityInfo, selectedCity, people, onPersonClick, geocodePeople, handleUpdateResidents, handleUpdateVisitors, availableTags, newlyAddedPerson]);
+
   return (
     <div className="relative">
       <Map
@@ -310,26 +336,7 @@ const WorldMap: React.FC<WorldMapProps> = ({ people, onPersonClick, searchQuery,
       >
         {isGlobeView ? "Switch to Flat Map" : "Switch to Globe View"}
       </button>
-      {showCityInfo && selectedCity && (
-        <CityInfoCard
-          city={selectedCity.city}
-          country={selectedCity.country}
-          residents={selectedCity.people}
-          visitors={people.filter(p => 
-            p.visitedLocations.some(vl => vl.location === selectedCity.city) && 
-            !selectedCity.people.some(r => r.id === p.id)
-          )}
-          onPersonClick={onPersonClick}
-          onClose={() => setShowCityInfo(false)}
-          onUpdate={() => {
-            geocodePeople();
-          }}
-          onUpdateResidents={handleUpdateResidents}
-          onUpdateVisitors={handleUpdateVisitors}
-          availableTags={availableTags}
-          newlyAddedPerson={newlyAddedPerson}
-        />
-      )}
+      {memoizedCityInfoCard}
     </div>
   );
 };
