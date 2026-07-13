@@ -28,7 +28,7 @@ Pins are colored by relationship: 🟢 **lives · from · family** · 🔵 **vis
 - **Next.js 14** (App Router) · React · TypeScript · Tailwind
 - **Postgres** on **Neon** via **Drizzle ORM** (no PostGIS — clustering is client-side)
 - **react-map-gl / mapbox-gl** + **Supercluster** for the zoom-collapse map
-- **Geocoding (3-tier):** Mapbox Geocoding v6 (admin places) → Mapbox Search Box (POIs) → OpenStreetMap/Nominatim (fallback)
+- **Geocoding:** OpenStreetMap/Nominatim (free, storage-legal) for stored places; Mapbox Geocoding v6 + Search Box (free temporary tier) for display-only "go to" navigation. `MAPBOX_PERMANENT=true` opts stored places back into paid Mapbox Permanent Geocoding.
 - **Claude Haiku 4.5** (`@anthropic-ai/sdk`) for text→structure parsing (optional; a built-in quick parser runs without a key)
 
 Architecture is **API-first** — all logic lives in `/app/api` route handlers and

@@ -1,15 +1,15 @@
 // Geocoding: turn a place string into a point + admin hierarchy.
 //
-// Primary: Mapbox Geocoding v6 with permanent=true (better at messy/abbreviated
-// input, proximity disambiguation, and bulk volume; clean `context` hierarchy).
-// We MUST use permanent=true because we STORE coordinates — Mapbox's free
-// "temporary" tier forbids caching. Cost is ~$5/1k but we cache one geocode per
-// distinct place forever, so it's cents/year for a personal app.
+// STORED geocodes (capture/import — coordinates saved to the DB) default to
+// OpenStreetMap Nominatim: free, no key, and its ODbL license allows storing
+// results. Mapbox's terms forbid storing anything from its free "temporary"
+// tier, and its Permanent tier bills a $5 minimum any month with even one
+// request — set MAPBOX_PERMANENT=true to opt back into that for better
+// handling of messy/abbreviated input.
 //
-// Fallback: OpenStreetMap Nominatim (free, no key, storage-OK under ODbL). Used
-// when there's no Mapbox token, on a Mapbox error, OR when Mapbox returns no
-// result — notably national parks, which Mapbox v6 dropped (POIs moved to the
-// separate Search Box API) but OSM still has.
+// DISPLAY-ONLY geocodes ("go to" navigation, permanent:false — nothing stored)
+// still use Mapbox Geocoding v6 + Search Box on their free temporary tiers,
+// falling back to Nominatim on error or no result.
 //
 // Output is provider-neutral so swapping providers is contained to this file.
 
@@ -60,10 +60,11 @@ function mapboxToken(): string | undefined {
   return process.env.MAPBOX_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || undefined;
 }
 
-// Storing coordinates => must be permanent. Override only for local testing
-// against an account without billing enabled (MAPBOX_PERMANENT=false).
-function permanent(): boolean {
-  return process.env.MAPBOX_PERMANENT !== 'false';
+// Opt-in to Mapbox's PAID Permanent Geocoding tier for stored geocodes ($5
+// minimum any month with usage). Off by default — stored geocodes go to
+// Nominatim instead, which is free and storage-legal.
+function mapboxPermanentEnabled(): boolean {
+  return process.env.MAPBOX_PERMANENT === 'true';
 }
 
 // Continents (and a few common supra-national regions) aren't admin places, so
@@ -120,11 +121,20 @@ export async function geocodePlace(
   const curated = curatedRegion(q);
   if (curated) return curated;
 
+  // Results that get STORED (the default) may only come from Mapbox on its paid
+  // Permanent tier — Mapbox's terms forbid storing temporary-tier results. So
+  // unless MAPBOX_PERMANENT=true, stored geocodes skip Mapbox and use Nominatim.
+  const willStore = opts.permanent ?? true;
   const token = mapboxToken();
-  if (token && process.env.GEOCODER !== 'nominatim') {
+  const useMapbox =
+    !!token &&
+    process.env.GEOCODER !== 'nominatim' &&
+    (!willStore || mapboxPermanentEnabled());
+
+  if (useMapbox) {
     // 1) Admin places (cities, states, countries, neighborhoods) via Geocoding v6.
     try {
-      const admin = await geocodeMapbox(q, token, opts);
+      const admin = await geocodeMapbox(q, token!, { ...opts, permanent: willStore });
       if (admin) return admin;
     } catch (e) {
       console.error('[geocode] Mapbox geocoding error for', q, e);
@@ -132,13 +142,13 @@ export async function geocodePlace(
     // 2) POIs (ski resorts, parks, landmarks, businesses) via Search Box —
     //    Geocoding v6 has no POIs, and OSM relevance for them is weak.
     try {
-      const poi = await geocodeSearchBox(q, token, opts);
+      const poi = await geocodeSearchBox(q, token!, opts);
       if (poi) return poi;
     } catch (e) {
       console.error('[geocode] Mapbox Search Box error for', q, e);
     }
   }
-  // 3) Last resort: OpenStreetMap.
+  // 3) Default for stored geocodes, last resort otherwise: OpenStreetMap.
   return geocodeNominatim(q);
 }
 
@@ -172,7 +182,7 @@ async function geocodeMapbox(
     q,
     access_token: token,
     limit: '1',
-    permanent: (opts.permanent ?? permanent()) ? 'true' : 'false',
+    permanent: (opts.permanent ?? false) ? 'true' : 'false',
   });
   if (opts.proximity) params.set('proximity', `${opts.proximity.lng},${opts.proximity.lat}`);
 
@@ -287,13 +297,29 @@ function nominatimPlaceType(addresstype?: string, klass?: string, type?: string)
   if (['city', 'town', 'village', 'municipality', 'hamlet'].includes(a)) return 'place';
   if (['suburb', 'neighbourhood', 'quarter', 'borough', 'city_district'].includes(a))
     return 'neighborhood';
-  if (klass === 'boundary' && type === 'national_park') return 'poi';
+  if (klass === 'boundary' && ['national_park', 'protected_area'].includes(type || '')) return 'poi';
+  if (['nature_reserve', 'protected_area', 'national_park'].includes(a)) return 'poi';
   if (['leisure', 'tourism', 'natural', 'amenity', 'historic'].includes(klass || '')) return 'poi';
   return a || null;
 }
 
+const NOMINATIM_ADMIN_TYPES = new Set(['country', 'region', 'district', 'place', 'neighborhood']);
+
+// Nominatim's usage policy allows at most 1 request/second — space out calls
+// (a multi-place capture or notes import fires several geocodes back to back).
+let nominatimNextSlot = 0;
+async function nominatimThrottle(): Promise<void> {
+  const now = Date.now();
+  const wait = nominatimNextSlot - now;
+  nominatimNextSlot = Math.max(now, nominatimNextSlot) + 1100;
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+}
+
 async function geocodeNominatim(q: string): Promise<GeocodeResult | null> {
-  const url = `${NOMINATIM}?format=jsonv2&addressdetails=1&limit=1&q=${encodeURIComponent(q)}`;
+  await nominatimThrottle();
+  // accept-language=en: without it names come back in the local script
+  // ("ニセコ町" for Niseko), which breaks display and name-based matching.
+  const url = `${NOMINATIM}?format=jsonv2&addressdetails=1&limit=1&accept-language=en&q=${encodeURIComponent(q)}`;
   let res: Response;
   try {
     res = await fetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } });
@@ -321,7 +347,12 @@ async function geocodeNominatim(q: string): Promise<GeocodeResult | null> {
   const regionName = addr.state || addr.region || addr.province || null;
   const countryName = addr.country || null;
 
+  // Admin results are named by their hierarchy level; POIs (parks, landmarks)
+  // must keep their OWN name — "Yosemite National Park", not "California".
+  const placeType = nominatimPlaceType(f.addresstype, f.class, f.type);
+  const isAdmin = NOMINATIM_ADMIN_TYPES.has(placeType ?? '');
   const name =
+    (!isAdmin ? f.name : null) ||
     neighborhoodName ||
     placeName ||
     regionName ||
@@ -333,7 +364,7 @@ async function geocodeNominatim(q: string): Promise<GeocodeResult | null> {
     name,
     lat,
     lng,
-    placeType: nominatimPlaceType(f.addresstype, f.class, f.type),
+    placeType,
     countryCode: addr.country_code ? String(addr.country_code).toUpperCase() : null,
     countryName,
     regionCode: addr['ISO3166-2-lvl4'] || null,

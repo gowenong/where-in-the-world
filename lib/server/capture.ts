@@ -69,7 +69,7 @@ async function findExistingByIdentity(geo: {
 }
 
 // Cache-first place resolution: one geocode per distinct place string, stored
-// forever (keeps Mapbox Permanent geocoding at cents/year).
+// forever (geocoding is free via Nominatim, but caching keeps captures fast).
 async function resolvePlace(query: string): Promise<Place | null> {
   const qn = normalizeQuery(query);
   if (!qn) return null;
