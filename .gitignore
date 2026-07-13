@@ -43,3 +43,6 @@ next-env.d.ts
 # dedupe / cleanup reversibility snapshots (real DB rows — keep local only)
 /scripts/dedupe-backup-*.json
 /scripts/cleanup-orphans-backup-*.json
+
+# personal notes / scratch backlog (local only)
+*.local.md
